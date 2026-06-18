@@ -27,6 +27,7 @@ wgpu = ["iced_renderer/wgpu-bare"]
 markdown = ["dep:pulldown-cmark"]
 highlighter = ["dep:iced_highlighter"]
 advanced = []
+accessibility = ["iced_runtime/accessibility", "dep:accesskit"]
 
 [dependencies]
 iced_renderer.workspace = true
@@ -49,3 +50,6 @@ pulldown-cmark.optional = true
 
 iced_highlighter.workspace = true
 iced_highlighter.optional = true
+
+accesskit.workspace = true
+accesskit.optional = true

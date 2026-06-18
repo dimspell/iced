@@ -19,8 +19,10 @@ crisp = []
 image = []
 basic-shaping = []
 advanced-shaping = []
+accessibility = ["dep:accesskit"]
 
 [dependencies]
+accesskit = { version = "0.24", default-features = false, optional = true }
 bitflags.workspace = true
 bytes.workspace = true
 glam.workspace = true

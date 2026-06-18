@@ -4,6 +4,9 @@ use state::State;
 
 pub use crate::core::window::{Event, Id, RedrawRequest, Settings};
 
+#[cfg(feature = "accessibility")]
+use accesskit_winit;
+
 use crate::Proxy;
 use crate::conversion;
 use crate::core;
@@ -89,6 +92,8 @@ where
                 redraw_at: None,
                 preedit: None,
                 ime_state: None,
+                #[cfg(feature = "accessibility")]
+                accessibility_adapter: None,
             },
         );
 
@@ -186,6 +191,9 @@ where
     pub redraw_at: Option<Instant>,
     preedit: Option<Preedit<P::Renderer>>,
     ime_state: Option<(Rectangle, input_method::Purpose)>,
+
+    #[cfg(feature = "accessibility")]
+    pub accessibility_adapter: Option<accesskit_winit::Adapter>,
 }
 
 impl<P, C> Window<P, C>
@@ -302,6 +310,17 @@ where
         }
 
         self.preedit = None;
+    }
+
+    /// Updates the accessibility tree if an assistive technology is active.
+    #[cfg(feature = "accessibility")]
+    pub fn update_accessibility_tree(
+        &mut self,
+        tree_update: crate::core::accessibility::accesskit::TreeUpdate,
+    ) {
+        if let Some(adapter) = &mut self.accessibility_adapter {
+            adapter.update_if_active(move || tree_update);
+        }
     }
 }
 

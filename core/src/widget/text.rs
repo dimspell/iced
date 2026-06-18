@@ -259,6 +259,30 @@ where
     ) {
         operation.text(None, layout.bounds(), &self.fragment);
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::Layout<'_>,
+        _tree: &crate::widget::Tree,
+        _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        _id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let text = self.fragment.as_ref();
+        if text.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*_id_counter);
+        *_id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Label);
+        builder.set_value(text);
+
+        _nodes.push((id, builder));
+
+        Some(id)
+    }
 }
 
 /// The format of some [`Text`].

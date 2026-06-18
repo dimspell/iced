@@ -22,6 +22,7 @@ linux-theme-detection = ["dep:mundy", "mundy/async-io", "mundy/color-scheme"]
 image = ["iced_runtime/image", "arboard/image-data"]
 x11 = ["winit/x11"]
 wayland = ["winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita", "arboard/wayland-data-control"]
+accessibility = ["iced_runtime/accessibility", "dep:accesskit_winit"]
 
 [dependencies]
 iced_debug.workspace = true
@@ -33,6 +34,8 @@ rustc-hash.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 winit.workspace = true
+accesskit_winit.workspace = true
+accesskit_winit.optional = true
 
 sysinfo.workspace = true
 sysinfo.optional = true

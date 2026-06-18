@@ -332,6 +332,42 @@ where
         operation.focusable(self.id.as_ref(), layout.bounds(), state);
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        _tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
+
+        if self.is_secure {
+            builder.set_hidden();
+        }
+
+        // Use placeholder as name if value is empty
+        let value = self.value.to_string();
+        if value.is_empty() {
+            if !self.placeholder.is_empty() {
+                builder.set_placeholder(self.placeholder.as_str());
+            }
+        } else {
+            builder.set_value(value);
+        }
+
+        if self.on_input.is_none() {
+            builder.set_disabled();
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn update(
         &mut self,
         tree: &mut Tree,

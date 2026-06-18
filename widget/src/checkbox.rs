@@ -466,6 +466,34 @@ where
             operation.text(None, layout.bounds(), label);
         }
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        _tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::CheckBox);
+
+        if let Some(label) = &self.label {
+            builder.set_label(label.as_ref());
+        }
+
+        builder.set_toggled(accesskit::Toggled::from(self.is_checked));
+
+        if self.on_toggle.is_none() {
+            builder.set_disabled();
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
 }
 
 impl<'a, Message, Theme, Renderer> From<Checkbox<'a, Message, Theme, Renderer>>

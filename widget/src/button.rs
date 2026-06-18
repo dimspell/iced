@@ -258,6 +258,40 @@ where
         });
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        // Process content child first
+        let child_id = self.content.as_widget().accessibility(
+            layout.children().next().unwrap(),
+            &tree.children[0],
+            nodes,
+            id_counter,
+        );
+
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Button);
+
+        if self.on_press.is_none() {
+            builder.set_disabled();
+        }
+
+        if let Some(child_id) = child_id {
+            builder.push_child(child_id);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn update(
         &mut self,
         tree: &mut Tree,

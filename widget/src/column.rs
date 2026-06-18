@@ -232,6 +232,46 @@ where
         });
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let mut child_ids = Vec::new();
+        let layouts: Vec<_> = layout.children().collect();
+        for (i, child_tree) in tree.children.iter().enumerate() {
+            if let Some(child_layout) = layouts.get(i) {
+                if let Some(child_id) = self.children[i].as_widget().accessibility(
+                    *child_layout,
+                    child_tree,
+                    nodes,
+                    id_counter,
+                ) {
+                    child_ids.push(child_id);
+                }
+            }
+        }
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        for child_id in &child_ids {
+            builder.push_child(*child_id);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn update(
         &mut self,
         tree: &mut Tree,
@@ -497,6 +537,17 @@ where
         operation: &mut dyn Operation,
     ) {
         self.column.operate(tree, layout, renderer, operation);
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.column.accessibility(layout, tree, nodes, id_counter)
     }
 
     fn update(

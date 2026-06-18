@@ -13,6 +13,7 @@ keywords.workspace = true
 [features]
 selector = ["dep:iced_selector"]
 image = ["iced_core/image"]
+accessibility = ["iced_core/accessibility"]
 
 [lints]
 workspace = true

@@ -66,6 +66,72 @@ use std::mem::ManuallyDrop;
 use std::slice;
 use std::sync::Arc;
 
+#[cfg(feature = "accessibility")]
+use accesskit_winit;
+
+/// A wrapper around `accesskit_winit::Adapter` that implements `Send`
+/// for use with the single-threaded event loop channel.
+#[cfg(feature = "accessibility")]
+struct SendAdapter(Option<accesskit_winit::Adapter>);
+
+#[cfg(feature = "accessibility")]
+impl std::fmt::Debug for SendAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SendAdapter")
+            .field("adapter", &self.0.as_ref().map(|_| "Adapter"))
+            .finish()
+    }
+}
+
+#[cfg(feature = "accessibility")]
+// SAFETY: The adapter is only ever constructed and used on the main event
+// loop thread, even though the channel types technically require `Send`.
+#[allow(unsafe_code)]
+unsafe impl Send for SendAdapter {}
+
+#[cfg(feature = "accessibility")]
+impl SendAdapter {
+    fn into_inner(self) -> Option<accesskit_winit::Adapter> {
+        self.0
+    }
+}
+
+#[cfg(feature = "accessibility")]
+impl From<accesskit_winit::Adapter> for SendAdapter {
+    fn from(adapter: accesskit_winit::Adapter) -> Self {
+        Self(Some(adapter))
+    }
+}
+
+// Placeholder accessibility handler implementations for the initial integration.
+#[cfg(feature = "accessibility")]
+mod accessibility_handlers {
+    use crate::core::accessibility::accesskit::{
+        ActivationHandler, ActionHandler, ActionRequest, DeactivationHandler, TreeUpdate,
+    };
+
+    pub(super) struct Activation;
+    impl ActivationHandler for Activation {
+        fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+            None // The initial tree is provided by update_if_active on the next frame
+        }
+    }
+
+    pub(super) struct Action;
+    impl ActionHandler for Action {
+        fn do_action(&mut self, _request: ActionRequest) {
+            // TODO: Handle accessibility action requests
+        }
+    }
+
+    pub(super) struct Deactivation;
+    impl DeactivationHandler for Deactivation {
+        fn deactivate_accessibility(&mut self) {
+            // TODO: Clean up accessibility state if needed
+        }
+    }
+}
+
 /// Runs a [`Program`] with the provided settings.
 pub fn run<P>(program: P) -> Result<(), Error>
 where
@@ -382,6 +448,21 @@ where
                                     };
                                 }
 
+                                #[cfg(feature = "accessibility")]
+                                let accessibility_adapter = {
+                                    use accesskit_winit::Adapter;
+                                    use crate::accessibility_handlers;
+                                    // Create the adapter before the window is shown
+                                    let adapter = Adapter::with_direct_handlers(
+                                        event_loop,
+                                        &window,
+                                        accessibility_handlers::Activation,
+                                        accessibility_handlers::Action,
+                                        accessibility_handlers::Deactivation,
+                                    );
+                                    SendAdapter::from(adapter)
+                                };
+
                                 self.process_event(
                                     event_loop,
                                     Event::WindowCreated {
@@ -390,6 +471,8 @@ where
                                         exit_on_close_request,
                                         make_visible: visible,
                                         on_open,
+                                        #[cfg(feature = "accessibility")]
+                                        accessibility_adapter,
                                     },
                                 );
                             }
@@ -448,6 +531,8 @@ enum Event<Message: 'static> {
         exit_on_close_request: bool,
         make_visible: bool,
         on_open: oneshot::Sender<window::Id>,
+        #[cfg(feature = "accessibility")]
+        accessibility_adapter: SendAdapter,
     },
     EventLoopAwakened(winit::event::Event<Message>),
     Exit,
@@ -553,6 +638,8 @@ async fn run_instance<P>(
                 exit_on_close_request,
                 make_visible,
                 on_open,
+                #[cfg(feature = "accessibility")]
+                accessibility_adapter,
             } => {
                 if compositor.is_none() {
                     let (compositor_sender, compositor_receiver) = oneshot::channel();
@@ -639,6 +726,11 @@ async fn run_instance<P>(
                     exit_on_close_request,
                     system_theme,
                 );
+
+                #[cfg(feature = "accessibility")]
+                {
+                    window.accessibility_adapter = accessibility_adapter.into_inner();
+                }
 
                 window
                     .raw
@@ -933,6 +1025,20 @@ async fn run_instance<P>(
                         });
 
                         window.draw_preedit();
+
+                        #[cfg(feature = "accessibility")]
+                        {
+                            // TODO: Build a proper accessibility tree from the widget hierarchy.
+                            // Currently the UserInterface fields are private to iced_runtime,
+                            // so we send a minimal tree update for now.
+                            use crate::core::accessibility::accesskit;
+                            window.update_accessibility_tree(accesskit::TreeUpdate {
+                                nodes: vec![],
+                                tree: Some(accesskit::Tree::new(accesskit::NodeId(0))),
+                                focus: accesskit::NodeId(0),
+                                tree_id: accesskit::TreeId::ROOT,
+                            });
+                        }
 
                         let present_span = debug::present(id);
                         match current_compositor.present(

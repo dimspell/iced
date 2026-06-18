@@ -527,6 +527,28 @@ where
             mouse::Interaction::default()
         }
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        _tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Slider);
+
+        // Set the value as a string
+        let value_f64: f64 = self.value.as_();
+        builder.set_value(format!("{}", value_f64));
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
 }
 
 impl<'a, T, Message, Theme, Renderer> From<Slider<'a, T, Message, Theme>>
