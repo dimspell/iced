@@ -117,6 +117,23 @@ where
         None
     }
 
+    /// Handles an accessibility action request targeting this widget.
+    ///
+    /// This is called when an assistive technology (screen reader, switch
+    /// control, etc.) performs an action on the widget, such as activating
+    /// a button or changing a slider value.
+    ///
+    /// By default, it does nothing.
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut Tree,
+        _layout: Layout<'_>,
+        _action: &accesskit::ActionRequest,
+        _shell: &mut Shell<'_, Message>,
+    ) {
+    }
+
     /// Processes a runtime [`Event`].
     ///
     /// By default, it does nothing.

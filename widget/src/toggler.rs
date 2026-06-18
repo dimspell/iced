@@ -477,11 +477,12 @@ where
     fn accessibility(
         &self,
         _layout: crate::core::Layout<'_>,
-        _tree: &crate::core::widget::Tree,
+        tree: &crate::core::widget::Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
         let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Switch);
@@ -499,6 +500,21 @@ where
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if action.action == accesskit::Action::Click {
+            if let Some(on_toggle) = &self.on_toggle {
+                shell.publish((on_toggle)(!self.is_toggled));
+            }
+        }
     }
 }
 

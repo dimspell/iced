@@ -553,6 +553,7 @@ where
         );
 
         let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Group);
@@ -564,6 +565,21 @@ where
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if let (Some(state), Some(layout)) = (tree.children.first_mut(), layout.children().next()) {
+            self.content
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+        }
     }
 
     fn update(

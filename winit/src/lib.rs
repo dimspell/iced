@@ -109,6 +109,17 @@ mod accessibility_handlers {
     use crate::core::accessibility::accesskit::{
         ActivationHandler, ActionHandler, ActionRequest, DeactivationHandler, TreeUpdate,
     };
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    /// Queue of pending accessibility actions to be processed on the main
+    /// event loop thread.
+    static PENDING_ACTIONS: Mutex<VecDeque<ActionRequest>> = Mutex::new(VecDeque::new());
+
+    /// Takes all pending actions from the queue.
+    pub(super) fn drain_actions() -> VecDeque<ActionRequest> {
+        PENDING_ACTIONS.lock().unwrap().drain(..).collect()
+    }
 
     pub(super) struct Activation;
     impl ActivationHandler for Activation {
@@ -119,8 +130,8 @@ mod accessibility_handlers {
 
     pub(super) struct Action;
     impl ActionHandler for Action {
-        fn do_action(&mut self, _request: ActionRequest) {
-            // TODO: Handle accessibility action requests
+        fn do_action(&mut self, request: ActionRequest) {
+            PENDING_ACTIONS.lock().unwrap().push_back(request);
         }
     }
 
@@ -1028,6 +1039,17 @@ async fn run_instance<P>(
 
                         #[cfg(feature = "accessibility")]
                         {
+                            // Process pending accessibility actions from assistive technologies
+                            for request in accessibility_handlers::drain_actions() {
+                                let mut shell = core::Shell::new(
+                                    &window.raw,
+                                    window.waker.clone(),
+                                    &mut messages,
+                                );
+                                interface.handle_accessibility_action(&request, &mut shell);
+                            }
+
+                            // Build and send the updated accessibility tree
                             window.update_accessibility_tree(interface.accessibility_tree());
                         }
 

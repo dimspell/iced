@@ -264,7 +264,7 @@ where
     fn accessibility(
         &self,
         _layout: crate::Layout<'_>,
-        _tree: &crate::widget::Tree,
+        tree: &crate::widget::Tree,
         _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         _id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
@@ -274,6 +274,7 @@ where
         }
 
         let id = accesskit::NodeId(*_id_counter);
+        tree.set_accesskit_node_id(id);
         *_id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Label);

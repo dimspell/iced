@@ -532,11 +532,12 @@ where
     fn accessibility(
         &self,
         _layout: crate::core::Layout<'_>,
-        _tree: &crate::core::widget::Tree,
+        tree: &crate::core::widget::Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
         let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Slider);
@@ -548,6 +549,30 @@ where
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        let current: f64 = self.value.as_();
+        let new_value: f64 = match action.action {
+            accesskit::Action::Increment => {
+                (current + self.step).min(self.range.end().as_())
+            }
+            accesskit::Action::Decrement => {
+                (current - self.step).max(self.range.start().as_())
+            }
+            _ => return,
+        };
+
+        if let Some(value) = T::from_f64(new_value) {
+            shell.publish((self.on_change)(value));
+        }
     }
 }
 

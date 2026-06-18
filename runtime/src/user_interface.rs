@@ -616,6 +616,22 @@ where
         }
     }
 
+    /// Handles an accessibility action request by dispatching it to the
+    /// appropriate widget in the tree.
+    #[cfg(feature = "accessibility")]
+    pub fn handle_accessibility_action(
+        &mut self,
+        request: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        self.root.as_widget_mut().accessibility_action(
+            &mut self.state,
+            Layout::new(&self.base),
+            request,
+            shell,
+        );
+    }
+
     /// Relayouts and returns a new  [`UserInterface`] using the provided
     /// bounds.
     pub fn relayout(self, bounds: Size, renderer: &mut Renderer) -> Self {

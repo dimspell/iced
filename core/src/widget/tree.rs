@@ -3,6 +3,7 @@ use crate::Widget;
 
 use std::any::{self, Any};
 use std::borrow::{Borrow, BorrowMut};
+use std::cell::Cell;
 use std::fmt;
 
 /// A persistent state widget tree.
@@ -18,6 +19,11 @@ pub struct Tree {
 
     /// The children of the root widget of the [`Tree`].
     pub children: Vec<Tree>,
+
+    /// The accesskit [`NodeId`] assigned to this widget during the last
+    /// accessibility tree build, if any.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_node_id: Cell<Option<accesskit::NodeId>>,
 }
 
 impl Tree {
@@ -27,6 +33,8 @@ impl Tree {
             tag: Tag::stateless(),
             state: State::None,
             children: Vec::new(),
+            #[cfg(feature = "accessibility")]
+            accesskit_node_id: Cell::new(None),
         }
     }
 
@@ -43,7 +51,21 @@ impl Tree {
             tag: widget.tag(),
             state: widget.state(),
             children: Vec::new(),
+            #[cfg(feature = "accessibility")]
+            accesskit_node_id: Cell::new(None),
         }
+    }
+
+    /// Sets the accesskit [`NodeId`] assigned to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_node_id(&self, id: accesskit::NodeId) {
+        self.accesskit_node_id.set(Some(id));
+    }
+
+    /// Returns the accesskit [`NodeId`] assigned to this widget, if any.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_node_id(&self) -> Option<accesskit::NodeId> {
+        self.accesskit_node_id.get()
     }
 
     /// Reconciles the current tree with the provided [`Widget`].

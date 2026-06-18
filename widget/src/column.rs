@@ -260,6 +260,7 @@ where
         }
 
         let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Group);
@@ -272,6 +273,26 @@ where
         Some(id)
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        for ((child, state), layout) in self
+            .children
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            child
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+        }
+    }
+
     fn update(
         &mut self,
         tree: &mut Tree,
@@ -282,15 +303,15 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        for ((child, tree), layout) in self
+        for ((child, state), layout) in self
             .children
             .iter_mut()
-            .zip(&mut tree.children)
+            .zip(tree.children.iter_mut())
             .zip(layout.children())
         {
             child
                 .as_widget_mut()
-                .update(tree, event, layout, cursor, renderer, shell, viewport);
+                .update(state, event, layout, cursor, renderer, shell, viewport);
         }
     }
 
@@ -548,6 +569,18 @@ where
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
         self.column.accessibility(layout, tree, nodes, id_counter)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        self.column
+            .accessibility_action(tree, layout, action, shell);
     }
 
     fn update(
