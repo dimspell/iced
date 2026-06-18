@@ -1028,16 +1028,7 @@ async fn run_instance<P>(
 
                         #[cfg(feature = "accessibility")]
                         {
-                            // TODO: Build a proper accessibility tree from the widget hierarchy.
-                            // Currently the UserInterface fields are private to iced_runtime,
-                            // so we send a minimal tree update for now.
-                            use crate::core::accessibility::accesskit;
-                            window.update_accessibility_tree(accesskit::TreeUpdate {
-                                nodes: vec![],
-                                tree: Some(accesskit::Tree::new(accesskit::NodeId(0))),
-                                focus: accesskit::NodeId(0),
-                                tree_id: accesskit::TreeId::ROOT,
-                            });
+                            window.update_accessibility_tree(interface.accessibility_tree());
                         }
 
                         let present_span = debug::present(id);

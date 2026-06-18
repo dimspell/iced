@@ -11,6 +11,9 @@ use crate::core::{
     Clipboard, Element, InputMethod, Layout, Rectangle, Shell, Size, Vector, Window,
 };
 
+#[cfg(feature = "accessibility")]
+use crate::core::accessibility::accesskit;
+
 /// A set of interactive graphical elements with a specific [`Layout`].
 ///
 /// It can be updated and drawn.
@@ -553,6 +556,7 @@ where
 
     /// Applies a [`widget::Operation`] to the [`UserInterface`].
     pub fn operate(&mut self, renderer: &Renderer, operation: &mut dyn widget::Operation) {
+
         let viewport = Rectangle::with_size(self.bounds);
 
         self.root.as_widget_mut().operate(
@@ -586,6 +590,29 @@ where
                 renderer,
                 operation,
             );
+        }
+    }
+
+    /// Returns the accessibility tree update for the [`UserInterface`].
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility_tree(&mut self) -> accesskit::TreeUpdate {
+        let mut nodes = Vec::new();
+        let mut id_counter = 1u64;
+
+        let root_id = self.root.as_widget().accessibility(
+            Layout::new(&self.base),
+            &self.state,
+            &mut nodes,
+            &mut id_counter,
+        );
+
+        let root = root_id.unwrap_or(accesskit::NodeId(0));
+
+        accesskit::TreeUpdate {
+            nodes,
+            tree: Some(accesskit::Tree::new(root)),
+            focus: root,
+            tree_id: accesskit::TreeId::ROOT,
         }
     }
 
