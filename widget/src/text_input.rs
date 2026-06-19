@@ -101,6 +101,7 @@ where
     on_submit: Option<Message>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
+    accessible_label: Option<String>,
 }
 
 /// The default [`Padding`] of a [`TextInput`].
@@ -136,6 +137,7 @@ where
             on_submit: None,
             class: Theme::default(),
             last_status: None,
+            accessible_label: None,
         }
     }
 
@@ -259,6 +261,12 @@ where
         self.class = class.into();
         self
     }
+
+    /// Sets the accessible label of the [`TextInput`], used by screen readers.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -348,6 +356,10 @@ where
 
         if self.is_secure {
             builder.set_hidden();
+        }
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         // Use placeholder as name if value is empty

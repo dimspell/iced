@@ -99,6 +99,7 @@ where
     height: f32,
     class: Theme::Class<'a>,
     status: Option<Status>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, T, Message, Theme> Slider<'a, T, Message, Theme>
@@ -146,6 +147,7 @@ where
             height: Self::DEFAULT_HEIGHT,
             class: Theme::default(),
             status: None,
+            accessible_label: None,
         }
     }
 
@@ -209,6 +211,12 @@ where
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`Slider`], used by screen readers.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -541,6 +549,10 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Slider);
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
 
         // Set the value as a string
         let value_f64: f64 = self.value.as_();

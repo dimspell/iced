@@ -562,6 +562,25 @@ where
             builder.push_child(child_id);
         }
 
+        // Report scroll position
+        let state: &State = tree.state.downcast_ref::<State>();
+        let bounds = layout.bounds();
+        let content_bounds = layout
+            .children()
+            .next()
+            .map(|l| l.bounds())
+            .unwrap_or_default();
+
+        let scroll_x = state.offset_x.absolute(bounds.width, content_bounds.width) as f64;
+        let scroll_y = state.offset_y.absolute(bounds.height, content_bounds.height) as f64;
+
+        builder.set_scroll_x(scroll_x);
+        builder.set_scroll_y(scroll_y);
+        builder.set_scroll_x_min(0.0);
+        builder.set_scroll_y_min(0.0);
+        builder.set_scroll_x_max((content_bounds.width - bounds.width).max(0.0) as f64);
+        builder.set_scroll_y_max((content_bounds.height - bounds.height).max(0.0) as f64);
+
         nodes.push((id, builder));
 
         Some(id)

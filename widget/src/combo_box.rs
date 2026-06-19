@@ -155,6 +155,7 @@ where
     menu_class: <Theme as menu::Catalog>::Class<'a>,
     menu_height: Length,
     last_status: Option<text_input::Status>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, T, Message, Theme, Renderer> ComboBox<'a, T, Message, Theme, Renderer>
@@ -193,6 +194,7 @@ where
             menu_class: <Theme as Catalog>::default_menu(),
             menu_height: Length::Shrink,
             last_status: None,
+            accessible_label: None,
         }
     }
 
@@ -319,6 +321,12 @@ where
     #[must_use]
     pub fn menu_class(mut self, class: impl Into<<Theme as menu::Catalog>::Class<'a>>) -> Self {
         self.menu_class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`ComboBox`], used by screen readers.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -715,6 +723,10 @@ where
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
+        }
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         // Set the current value

@@ -252,6 +252,9 @@ where
             builder.set_max_numeric_value(1.0);
         }
 
+        // Set as live region so screen readers announce progress changes
+        builder.set_live(accesskit::Live::Polite);
+
         nodes.push((id, builder));
 
         Some(id)

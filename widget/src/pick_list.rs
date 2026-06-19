@@ -171,6 +171,7 @@ where
     menu_class: <Theme as menu::Catalog>::Class<'a>,
     last_status: Option<Status>,
     menu_height: Length,
+    accessible_label: Option<String>,
 }
 
 impl<'a, T, L, V, Message, Theme, Renderer> PickList<'a, T, L, V, Message, Theme, Renderer>
@@ -205,6 +206,7 @@ where
             menu_class: <Theme as Catalog>::default_menu(),
             last_status: None,
             menu_height: Length::Shrink,
+            accessible_label: None,
         }
     }
 
@@ -319,6 +321,12 @@ where
     #[must_use]
     pub fn menu_class(mut self, class: impl Into<<Theme as menu::Catalog>::Class<'a>>) -> Self {
         self.menu_class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`PickList`], used by screen readers.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -710,6 +718,10 @@ where
 
         let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
 
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+
         // Set the current value (selected option label or placeholder)
         if let Some(selected) = self.selected.as_ref().map(Borrow::borrow) {
             builder.set_value((self.to_string)(selected));
@@ -721,6 +733,7 @@ where
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
         let is_open = state.is_open;
         builder.set_expanded(is_open);
+        builder.set_has_popup(accesskit::HasPopup::Menu);
 
         nodes.push((id, builder));
 
