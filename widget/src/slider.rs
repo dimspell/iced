@@ -563,6 +563,9 @@ where
         builder.set_min_numeric_value(start_f64);
         builder.set_max_numeric_value(end_f64);
 
+        builder.add_action(accesskit::Action::Increment);
+        builder.add_action(accesskit::Action::Decrement);
+
         nodes.push((id, builder));
 
         Some(id)

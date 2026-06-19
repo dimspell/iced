@@ -282,6 +282,8 @@ where
 
         if self.on_press.is_none() {
             builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::Click);
         }
 
         if let Some(child_id) = child_id {

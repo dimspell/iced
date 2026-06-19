@@ -374,6 +374,8 @@ where
 
         if self.on_input.is_none() {
             builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::ReplaceSelectedText);
         }
 
         // Track keyboard focus for the accessibility tree

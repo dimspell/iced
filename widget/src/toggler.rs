@@ -495,6 +495,8 @@ where
 
         if self.on_toggle.is_none() {
             builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::Click);
         }
 
         nodes.push((id, builder));

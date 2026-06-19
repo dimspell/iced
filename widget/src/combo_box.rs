@@ -734,9 +734,45 @@ where
             builder.set_value(self.selection.to_string());
         }
 
+        builder.add_action(accesskit::Action::Expand);
+        builder.add_action(accesskit::Action::Collapse);
+
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        _shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        use crate::core::accessibility::accesskit;
+
+        match action.action {
+            accesskit::Action::Click | accesskit::Action::Expand => {
+                let state = tree
+                    .state
+                    .downcast_mut::<text_input::State<Renderer::Paragraph>>();
+                if !state.is_focused() {
+                    state.focus();
+                    _shell.invalidate_layout();
+                }
+            }
+            accesskit::Action::Collapse => {
+                let state = tree
+                    .state
+                    .downcast_mut::<text_input::State<Renderer::Paragraph>>();
+                if state.is_focused() {
+                    state.unfocus();
+                    _shell.invalidate_layout();
+                }
+            }
+            _ => {}
+        }
     }
 
     fn overlay<'b>(

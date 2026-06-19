@@ -516,6 +516,9 @@ where
         let value_f64: f64 = self.value.as_();
         builder.set_value(format!("{}", value_f64));
 
+        builder.add_action(accesskit::Action::Increment);
+        builder.add_action(accesskit::Action::Decrement);
+
         nodes.push((id, builder));
 
         Some(id)

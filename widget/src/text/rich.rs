@@ -13,26 +13,27 @@ use crate::core::{
 };
 
 /// A bunch of [`Rich`] text.
-pub struct Rich<'a, Link, Message, Theme = crate::Theme, Renderer = crate::Renderer>
-where
-    Link: Clone + 'static,
-    Theme: Catalog,
-    Renderer: core::text::Renderer,
-{
-    spans: Box<dyn AsRef<[Span<'a, Link, Renderer::Font>]> + 'a>,
-    size: Option<Pixels>,
-    line_height: LineHeight,
-    width: Length,
-    height: Length,
-    font: Option<Renderer::Font>,
-    align_x: Alignment,
-    align_y: alignment::Vertical,
-    wrapping: Wrapping,
-    ellipsis: Ellipsis,
-    class: Theme::Class<'a>,
-    hovered_link: Option<usize>,
-    on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
-}
+    pub struct Rich<'a, Link, Message, Theme = crate::Theme, Renderer = crate::Renderer>
+    where
+        Link: Clone + 'static,
+        Theme: Catalog,
+        Renderer: core::text::Renderer,
+    {
+        spans: Box<dyn AsRef<[Span<'a, Link, Renderer::Font>]> + 'a>,
+        size: Option<Pixels>,
+        line_height: LineHeight,
+        width: Length,
+        height: Length,
+        font: Option<Renderer::Font>,
+        align_x: Alignment,
+        align_y: alignment::Vertical,
+        wrapping: Wrapping,
+        ellipsis: Ellipsis,
+        class: Theme::Class<'a>,
+        hovered_link: Option<usize>,
+        on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
+        heading_level: Option<usize>,
+    }
 
 impl<'a, Link, Message, Theme, Renderer> Rich<'a, Link, Message, Theme, Renderer>
 where
@@ -57,6 +58,7 @@ where
             class: Theme::default(),
             hovered_link: None,
             on_link_click: None,
+            heading_level: None,
         }
     }
 
@@ -77,6 +79,15 @@ where
     /// Sets the default [`LineHeight`] of the [`Rich`] text.
     pub fn line_height(mut self, line_height: impl Into<LineHeight>) -> Self {
         self.line_height = line_height.into();
+        self
+    }
+
+    /// Sets the heading level of the [`Rich`] text.
+    ///
+    /// This will mark the text as a heading at the given level (1-6)
+    /// in the accessibility tree.
+    pub fn heading(mut self, level: usize) -> Self {
+        self.heading_level = Some(level);
         self
     }
 
@@ -447,7 +458,15 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        nodes.push((id, accesskit::Node::new(accesskit::Role::Paragraph)));
+        let builder = if let Some(level) = self.heading_level {
+            let mut node = accesskit::Node::new(accesskit::Role::Heading);
+            node.set_level(level);
+            node
+        } else {
+            accesskit::Node::new(accesskit::Role::Paragraph)
+        };
+
+        nodes.push((id, builder));
 
         Some(id)
     }

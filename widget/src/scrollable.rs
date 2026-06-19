@@ -581,6 +581,16 @@ where
         builder.set_scroll_x_max((content_bounds.width - bounds.width).max(0.0) as f64);
         builder.set_scroll_y_max((content_bounds.height - bounds.height).max(0.0) as f64);
 
+        // Only advertise scroll actions if the content is scrollable
+        if content_bounds.width > bounds.width {
+            builder.add_action(accesskit::Action::ScrollLeft);
+            builder.add_action(accesskit::Action::ScrollRight);
+        }
+        if content_bounds.height > bounds.height {
+            builder.add_action(accesskit::Action::ScrollDown);
+            builder.add_action(accesskit::Action::ScrollUp);
+        }
+
         nodes.push((id, builder));
 
         Some(id)
@@ -594,6 +604,70 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        use crate::core::accessibility::accesskit;
+
+        // Handle scroll actions
+        let state = tree.state.downcast_mut::<State>();
+        let bounds = layout.bounds();
+        let content_bounds = layout
+            .children()
+            .next()
+            .map(|l| l.bounds())
+            .unwrap_or_default();
+        let max_scroll_x = (content_bounds.width - bounds.width).max(0.0);
+        let max_scroll_y = (content_bounds.height - bounds.height).max(0.0);
+
+        match action.action {
+            accesskit::Action::ScrollDown => {
+                let scroll_amount = 40.0; // pixels per scroll step
+                let new_offset = (state.offset_y.absolute(bounds.height, content_bounds.height)
+                    + scroll_amount)
+                    .min(max_scroll_y);
+                state.offset_y = Offset::Absolute(new_offset);
+                shell.invalidate_layout();
+                return;
+            }
+            accesskit::Action::ScrollUp => {
+                let scroll_amount = 40.0;
+                let new_offset = (state.offset_y.absolute(bounds.height, content_bounds.height)
+                    - scroll_amount)
+                    .max(0.0);
+                state.offset_y = Offset::Absolute(new_offset);
+                shell.invalidate_layout();
+                return;
+            }
+            accesskit::Action::ScrollLeft => {
+                let scroll_amount = 40.0;
+                let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                    - scroll_amount)
+                    .max(0.0);
+                state.offset_x = Offset::Absolute(new_offset);
+                shell.invalidate_layout();
+                return;
+            }
+            accesskit::Action::ScrollRight => {
+                let scroll_amount = 40.0;
+                let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                    + scroll_amount)
+                    .min(max_scroll_x);
+                state.offset_x = Offset::Absolute(new_offset);
+                shell.invalidate_layout();
+                return;
+            }
+            accesskit::Action::SetScrollOffset => {
+                if let Some(data) = &action.data {
+                    if let accesskit::ActionData::SetScrollOffset(scroll_offset) = data {
+                        state.offset_x = Offset::Absolute(scroll_offset.x as f32);
+                        state.offset_y = Offset::Absolute(scroll_offset.y as f32);
+                        shell.invalidate_layout();
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+
+        // Forward to child for other actions
         if let (Some(state), Some(layout)) = (tree.children.first_mut(), layout.children().next()) {
             self.content
                 .as_widget_mut()

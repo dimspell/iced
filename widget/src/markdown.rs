@@ -1251,6 +1251,14 @@ where
     container(
         rich_text(text.spans(settings.style))
             .on_link_click(on_link_click)
+            .heading(match level {
+                pulldown_cmark::HeadingLevel::H1 => 1,
+                pulldown_cmark::HeadingLevel::H2 => 2,
+                pulldown_cmark::HeadingLevel::H3 => 3,
+                pulldown_cmark::HeadingLevel::H4 => 4,
+                pulldown_cmark::HeadingLevel::H5 => 5,
+                pulldown_cmark::HeadingLevel::H6 => 6,
+            })
             .size(match level {
                 pulldown_cmark::HeadingLevel::H1 => h1_size,
                 pulldown_cmark::HeadingLevel::H2 => h2_size,

@@ -735,9 +735,37 @@ where
         builder.set_expanded(is_open);
         builder.set_has_popup(accesskit::HasPopup::Menu);
 
+        builder.add_action(accesskit::Action::Expand);
+        builder.add_action(accesskit::Action::Collapse);
+
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut Tree,
+        _layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        _shell: &mut Shell<'_, Message>,
+    ) {
+        use crate::core::accessibility::accesskit;
+
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+
+        match action.action {
+            accesskit::Action::Click | accesskit::Action::Expand => {
+                state.is_open = true;
+                _shell.invalidate_layout();
+            }
+            accesskit::Action::Collapse => {
+                state.is_open = false;
+                _shell.invalidate_layout();
+            }
+            _ => {}
+        }
     }
 
     fn overlay<'b>(
