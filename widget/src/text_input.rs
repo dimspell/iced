@@ -364,6 +364,11 @@ where
             builder.set_disabled();
         }
 
+        // Track keyboard focus for the accessibility tree
+        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+            tree.set_accesskit_focused(true);
+        }
+
         nodes.push((id, builder));
 
         Some(id)

@@ -607,11 +607,12 @@ where
         );
 
         let root = root_id.unwrap_or(accesskit::NodeId(0));
+        let focus = find_focused_node_id(&self.state).unwrap_or(root);
 
         accesskit::TreeUpdate {
             nodes,
             tree: Some(accesskit::Tree::new(root)),
-            focus: root,
+            focus,
             tree_id: accesskit::TreeId::ROOT,
         }
     }
@@ -701,4 +702,21 @@ impl State {
             } => *has_layout_changed,
         }
     }
+}
+
+/// Recursively walks the widget [`Tree`] to find the first node that has
+/// keyboard focus, returning its accesskit [`NodeId`].
+#[cfg(feature = "accessibility")]
+fn find_focused_node_id(tree: &widget::Tree) -> Option<accesskit::NodeId> {
+    if tree.accesskit_focused() {
+        return tree.accesskit_node_id();
+    }
+
+    for child in &tree.children {
+        if let Some(id) = find_focused_node_id(child) {
+            return Some(id);
+        }
+    }
+
+    None
 }

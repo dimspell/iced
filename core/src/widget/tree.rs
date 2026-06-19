@@ -3,6 +3,7 @@ use crate::Widget;
 
 use std::any::{self, Any};
 use std::borrow::{Borrow, BorrowMut};
+#[cfg(feature = "accessibility")]
 use std::cell::Cell;
 use std::fmt;
 
@@ -24,6 +25,11 @@ pub struct Tree {
     /// accessibility tree build, if any.
     #[cfg(feature = "accessibility")]
     pub accesskit_node_id: Cell<Option<accesskit::NodeId>>,
+
+    /// Whether this widget currently has keyboard focus, determined during the
+    /// last accessibility tree build.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_focused: Cell<bool>,
 }
 
 impl Tree {
@@ -35,6 +41,8 @@ impl Tree {
             children: Vec::new(),
             #[cfg(feature = "accessibility")]
             accesskit_node_id: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_focused: Cell::new(false),
         }
     }
 
@@ -53,6 +61,8 @@ impl Tree {
             children: Vec::new(),
             #[cfg(feature = "accessibility")]
             accesskit_node_id: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_focused: Cell::new(false),
         }
     }
 
@@ -66,6 +76,18 @@ impl Tree {
     #[cfg(feature = "accessibility")]
     pub fn accesskit_node_id(&self) -> Option<accesskit::NodeId> {
         self.accesskit_node_id.get()
+    }
+
+    /// Sets whether this widget has keyboard focus.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_focused(&self, focused: bool) {
+        self.accesskit_focused.set(focused);
+    }
+
+    /// Returns whether this widget has keyboard focus.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_focused(&self) -> bool {
+        self.accesskit_focused.get()
     }
 
     /// Reconciles the current tree with the provided [`Widget`].
