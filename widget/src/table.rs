@@ -596,16 +596,20 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
+        use accesskit::Role;
+
         let columns = self.columns.len();
+        let rows = if columns > 0 { self.cells.len() / columns } else { 0 };
 
         // Get child node IDs, grouped by rows
-        let mut row_nodes: Vec<Vec<accesskit::NodeId>> = Vec::new();
+        let mut row_cell_ids: Vec<Vec<accesskit::NodeId>> = Vec::new();
 
         for (i, (cell, child_tree)) in self.cells.iter().zip(tree.children.iter()).enumerate() {
             let col = i % columns;
+            let row = i / columns;
 
             if col == 0 {
-                row_nodes.push(Vec::new());
+                row_cell_ids.push(Vec::new());
             }
 
             let cell_layout = layout.children().nth(i);
@@ -614,8 +618,19 @@ where
                     cell.as_widget()
                         .accessibility(cell_layout, child_tree, nodes, id_counter)
                 {
-                    if let Some(last_row) = row_nodes.last_mut() {
-                        last_row.push(cell_id);
+                    // Wrap the cell in a ColumnHeader or Cell role with indices
+                    let wrapper_id = accesskit::NodeId(*id_counter);
+                    *id_counter += 1;
+
+                    let is_header_row = row == 0;
+                    let mut wrapper = accesskit::Node::new(if is_header_row { Role::ColumnHeader } else { Role::Cell });
+                    wrapper.push_child(cell_id);
+                    wrapper.set_row_index(row);
+                    wrapper.set_column_index(col);
+                    nodes.push((wrapper_id, wrapper));
+
+                    if let Some(last_row) = row_cell_ids.last_mut() {
+                        last_row.push(wrapper_id);
                     }
                 }
             }
@@ -623,11 +638,11 @@ where
 
         // Create Row wrapper nodes for each row
         let mut row_ids: Vec<accesskit::NodeId> = Vec::new();
-        for row_cells in &row_nodes {
+        for row_cells in &row_cell_ids {
             let row_id = accesskit::NodeId(*id_counter);
             *id_counter += 1;
 
-            let mut row_builder = accesskit::Node::new(accesskit::Role::Row);
+            let mut row_builder = accesskit::Node::new(Role::Row);
             for cell_id in row_cells {
                 row_builder.push_child(*cell_id);
             }
@@ -639,10 +654,12 @@ where
         let table_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
 
-        let mut table_builder = accesskit::Node::new(accesskit::Role::Table);
+        let mut table_builder = accesskit::Node::new(Role::Table);
         for row_id in &row_ids {
             table_builder.push_child(*row_id);
         }
+        table_builder.set_row_count(rows);
+        table_builder.set_column_count(columns);
         nodes.push((table_id, table_builder));
 
         Some(table_id)

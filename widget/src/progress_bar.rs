@@ -247,6 +247,9 @@ where
         if range_end > range_start {
             let ratio = (self.value - range_start) / (range_end - range_start);
             builder.set_value(format!("{:.0}%", ratio * 100.0));
+            builder.set_numeric_value(ratio as f64);
+            builder.set_min_numeric_value(0.0);
+            builder.set_max_numeric_value(1.0);
         }
 
         nodes.push((id, builder));

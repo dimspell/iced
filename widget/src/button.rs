@@ -286,6 +286,7 @@ where
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
+            builder.set_labelled_by(vec![child_id]);
         }
 
         nodes.push((id, builder));

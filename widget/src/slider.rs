@@ -544,7 +544,12 @@ where
 
         // Set the value as a string
         let value_f64: f64 = self.value.as_();
+        let start_f64: f64 = self.range.start().as_();
+        let end_f64: f64 = self.range.end().as_();
         builder.set_value(format!("{}", value_f64));
+        builder.set_numeric_value(value_f64);
+        builder.set_min_numeric_value(start_f64);
+        builder.set_max_numeric_value(end_f64);
 
         nodes.push((id, builder));
 

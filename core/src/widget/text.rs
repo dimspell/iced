@@ -62,6 +62,7 @@ where
     fragment: text::Fragment<'a>,
     format: Format<Renderer::Font>,
     class: Theme::Class<'a>,
+    heading_level: Option<usize>,
 }
 
 impl<'a, Theme, Renderer> Text<'a, Theme, Renderer>
@@ -75,6 +76,7 @@ where
             fragment: fragment.into_fragment(),
             format: Format::default(),
             class: Theme::default(),
+            heading_level: None,
         }
     }
 
@@ -151,6 +153,15 @@ where
     /// Sets the [`Ellipsis`] strategy of the [`Text`].
     pub fn ellipsis(mut self, ellipsis: Ellipsis) -> Self {
         self.format.ellipsis = ellipsis;
+        self
+    }
+
+    /// Sets the heading level of the [`Text`].
+    ///
+    /// This will mark the text as a heading at the given level (1-6)
+    /// in the accessibility tree.
+    pub fn heading(mut self, level: usize) -> Self {
+        self.heading_level = Some(level);
         self
     }
 
@@ -277,7 +288,13 @@ where
         tree.set_accesskit_node_id(id);
         *_id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Label);
+        let mut builder = if let Some(level) = self.heading_level {
+            let mut node = accesskit::Node::new(accesskit::Role::Heading);
+            node.set_level(level);
+            node
+        } else {
+            accesskit::Node::new(accesskit::Role::Label)
+        };
         builder.set_value(text);
 
         _nodes.push((id, builder));
