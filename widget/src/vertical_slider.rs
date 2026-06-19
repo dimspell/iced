@@ -43,6 +43,9 @@ use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{self, Element, Event, Length, Pixels, Point, Rectangle, Shell, Size, Widget};
 
+#[cfg(feature = "accessibility")]
+use crate::core::accessibility::accesskit;
+
 /// An vertical bar and a handle that selects a single value from a range of
 /// values.
 ///
@@ -494,6 +497,52 @@ where
             },
             style.handle.background,
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Slider);
+
+        let value_f64: f64 = self.value.as_();
+        builder.set_value(format!("{}", value_f64));
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        let current: f64 = self.value.as_();
+        let new_value: f64 = match action.action {
+            accesskit::Action::Increment => {
+                (current + self.step.as_()).min(self.range.end().as_())
+            }
+            accesskit::Action::Decrement => {
+                (current - self.step.as_()).max(self.range.start().as_())
+            }
+            _ => return,
+        };
+
+        if let Some(value) = T::from_f64(new_value) {
+            shell.publish((self.on_change)(value));
+        }
     }
 
     fn mouse_interaction(

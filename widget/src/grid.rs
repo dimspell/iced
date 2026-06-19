@@ -325,6 +325,50 @@ where
         }
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let mut child_ids = Vec::new();
+
+        for ((child, state), child_layout) in self
+            .children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+        {
+            if let Some(child_id) = child
+                .as_widget()
+                .accessibility(child_layout, state, nodes, id_counter)
+            {
+                child_ids.push(child_id);
+            }
+        }
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        for child_id in child_ids {
+            builder.push_child(child_id);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,

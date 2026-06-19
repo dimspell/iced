@@ -916,6 +916,68 @@ where
 
         (!children.is_empty()).then(|| Group::with_children(children).overlay())
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let child_ids: Vec<accesskit::NodeId> = self
+            .panes
+            .iter()
+            .zip(&self.contents)
+            .zip(&tree.children)
+            .zip(layout.children())
+            .filter_map(|(((pane, content), child_tree), child_layout)| {
+                if self
+                    .internal
+                    .maximized()
+                    .is_some_and(|maximized| maximized != *pane)
+                {
+                    return None;
+                }
+
+                content.accessibility(child_layout, child_tree, nodes, id_counter)
+            })
+            .collect();
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
+        for child_id in &child_ids {
+            builder.push_child(*child_id);
+        }
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        for ((content, child_tree), child_layout) in self
+            .contents
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            content.accessibility_action(child_tree, child_layout, action, shell);
+        }
+    }
 }
 
 struct PickedPane<'a, 'b, Message, Theme, Renderer>

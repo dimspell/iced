@@ -587,6 +587,85 @@ where
             translation,
         )
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let columns = self.columns.len();
+
+        // Get child node IDs, grouped by rows
+        let mut row_nodes: Vec<Vec<accesskit::NodeId>> = Vec::new();
+
+        for (i, (cell, child_tree)) in self.cells.iter().zip(tree.children.iter()).enumerate() {
+            let col = i % columns;
+
+            if col == 0 {
+                row_nodes.push(Vec::new());
+            }
+
+            let cell_layout = layout.children().nth(i);
+            if let Some(cell_layout) = cell_layout {
+                if let Some(cell_id) =
+                    cell.as_widget()
+                        .accessibility(cell_layout, child_tree, nodes, id_counter)
+                {
+                    if let Some(last_row) = row_nodes.last_mut() {
+                        last_row.push(cell_id);
+                    }
+                }
+            }
+        }
+
+        // Create Row wrapper nodes for each row
+        let mut row_ids: Vec<accesskit::NodeId> = Vec::new();
+        for row_cells in &row_nodes {
+            let row_id = accesskit::NodeId(*id_counter);
+            *id_counter += 1;
+
+            let mut row_builder = accesskit::Node::new(accesskit::Role::Row);
+            for cell_id in row_cells {
+                row_builder.push_child(*cell_id);
+            }
+            nodes.push((row_id, row_builder));
+            row_ids.push(row_id);
+        }
+
+        // Create the Table node
+        let table_id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut table_builder = accesskit::Node::new(accesskit::Role::Table);
+        for row_id in &row_ids {
+            table_builder.push_child(*row_id);
+        }
+        nodes.push((table_id, table_builder));
+
+        Some(table_id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        for ((cell, child_tree), child_layout) in self
+            .cells
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+        {
+            cell.as_widget_mut()
+                .accessibility_action(child_tree, child_layout, action, shell);
+        }
+    }
 }
 
 impl<'a, Message, Theme, Renderer> From<Table<'a, Message, Theme, Renderer>>

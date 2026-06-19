@@ -64,6 +64,49 @@ where
     Theme: container::Catalog,
     Renderer: core::Renderer,
 {
+    #[cfg(feature = "accessibility")]
+    pub(super) fn accessibility(
+        &self,
+        layout: Layout<'_>,
+        tree: &Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        // Body is always at tree.children[0]
+        let body_layout = if self.title_bar.is_some() {
+            layout.children().nth(1)
+        } else {
+            Some(layout)
+        };
+
+        body_layout.and_then(|body_layout| {
+            self.body
+                .as_widget()
+                .accessibility(body_layout, &tree.children[0], nodes, id_counter)
+        })
+    }
+
+    #[cfg(feature = "accessibility")]
+    pub(super) fn accessibility_action(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let body_layout = if self.title_bar.is_some() {
+            layout.children().nth(1)
+        } else {
+            Some(layout)
+        };
+
+        if let Some(body_layout) = body_layout {
+            self.body
+                .as_widget_mut()
+                .accessibility_action(&mut tree.children[0], body_layout, action, shell);
+        }
+    }
+
     pub(super) fn state(&self) -> Tree {
         let children = if let Some(title_bar) = self.title_bar.as_ref() {
             vec![Tree::new(&self.body), title_bar.state()]

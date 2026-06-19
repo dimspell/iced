@@ -206,6 +206,28 @@ where
             renderer.draw_geometry(geometry);
         });
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        builder.set_label("QR Code");
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
 }
 
 impl<'a, Message, Theme> From<QRCode<'a, Theme>> for Element<'a, Message, Theme, Renderer>
