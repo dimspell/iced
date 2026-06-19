@@ -599,6 +599,10 @@ where
         &mut self,
         renderer: &Renderer,
     ) -> accesskit::TreeUpdate {
+        // Reset focus flags from the previous frame so only widgets that
+        // are currently focused report themselves.
+        reset_accesskit_focus(&self.state);
+
         let mut nodes = Vec::new();
         let mut id_counter = 1u64;
 
@@ -749,4 +753,17 @@ fn find_focused_node_id(tree: &widget::Tree) -> Option<accesskit::NodeId> {
     }
 
     None
+}
+
+/// Resets the `accesskit_focused` flag on every node in the widget tree.
+///
+/// This must be called before each accessibility tree build so that
+/// focus flags from the previous frame don't persist.
+#[cfg(feature = "accessibility")]
+fn reset_accesskit_focus(tree: &widget::Tree) {
+    tree.set_accesskit_focused(false);
+
+    for child in &tree.children {
+        reset_accesskit_focus(child);
+    }
 }

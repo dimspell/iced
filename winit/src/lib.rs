@@ -138,7 +138,8 @@ mod accessibility_handlers {
     pub(super) struct Deactivation;
     impl DeactivationHandler for Deactivation {
         fn deactivate_accessibility(&mut self) {
-            // TODO: Clean up accessibility state if needed
+            // No cleanup needed — the adapter is reused if the screen reader
+            // re-activates via ActivationHandler.
         }
     }
 }
@@ -770,6 +771,14 @@ async fn run_instance<P>(
                     ),
                 );
                 let _ = ui_caches.insert(id, user_interface::Cache::default());
+
+                // Send an initial accessibility tree immediately so the
+                // screen reader has content on first activation.
+                #[cfg(feature = "accessibility")]
+                if let Some(ui) = user_interfaces.get_mut(&id) {
+                    window
+                        .update_accessibility_tree(ui.accessibility_tree(&window.renderer));
+                }
 
                 if make_visible {
                     window.raw.set_visible(true);
