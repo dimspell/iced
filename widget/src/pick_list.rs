@@ -694,6 +694,39 @@ where
         }
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: Layout<'_>,
+        tree: &Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
+
+        // Set the current value (selected option label or placeholder)
+        if let Some(selected) = self.selected.as_ref().map(Borrow::borrow) {
+            builder.set_value((self.to_string)(selected));
+        } else if let Some(placeholder) = &self.placeholder {
+            builder.set_value(placeholder.as_str());
+        }
+
+        // Indicate whether the dropdown is open
+        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
+        let is_open = state.is_open;
+        builder.set_expanded(is_open);
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,

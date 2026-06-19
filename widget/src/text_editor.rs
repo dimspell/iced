@@ -51,6 +51,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
 pub use text::editor::{
     Action, Binding, Cursor, Edit, KeyPress, Line, LineEnding, Motion, Selection,
@@ -595,6 +596,68 @@ where
             layout.bounds(),
             &mut self.content.0.borrow_mut().editor,
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: Layout<'_>,
+        tree: &widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
+
+        // Set the text content as the value
+        let text = self.content.text();
+        if text.is_empty() {
+            if let Some(placeholder) = &self.placeholder {
+                builder.set_placeholder(&*placeholder.clone().into_owned());
+            }
+        } else {
+            builder.set_value(text);
+        }
+
+        if self.on_edit.is_none() {
+            builder.set_disabled();
+        }
+
+        // Track keyboard focus for the accessibility tree
+        let state = tree.state.downcast_ref::<State<Highlighter>>();
+        if state.editor.is_focused() {
+            tree.set_accesskit_focused(true);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut widget::Tree,
+        _layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        if action.action == accesskit::Action::ReplaceSelectedText {
+            if let Some(data) = &action.data {
+                if let accesskit::ActionData::Value(value) = data {
+                    if let Some(on_edit) = &self.on_edit {
+                        shell.publish((on_edit)(Action::Edit(Edit::Paste(
+                            Arc::new(value.to_string()),
+                        ))));
+                    }
+                }
+            }
+        }
     }
 }
 
