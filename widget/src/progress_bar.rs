@@ -225,6 +225,34 @@ where
             );
         }
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::ProgressIndicator);
+
+        // Normalize the value and format as percentage
+        let (range_start, range_end) = self.range.clone().into_inner();
+        if range_end > range_start {
+            let ratio = (self.value - range_start) / (range_end - range_start);
+            builder.set_value(format!("{:.0}%", ratio * 100.0));
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
 }
 
 impl<'a, Message, Theme, Renderer> From<ProgressBar<'a, Theme>>

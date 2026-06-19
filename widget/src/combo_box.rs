@@ -689,6 +689,44 @@ where
         );
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        // Forward to the inner TextInput first
+        let child_id = self.text_input.accessibility(
+            _layout,
+            &tree.children[0],
+            nodes,
+            id_counter,
+        );
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
+
+        if let Some(child_id) = child_id {
+            builder.push_child(child_id);
+        }
+
+        // Set the current value
+        if !self.selection.is_empty() {
+            builder.set_value(self.selection.to_string());
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut widget::Tree,
