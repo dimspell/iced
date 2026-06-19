@@ -6,6 +6,9 @@ use crate::renderer;
 use crate::widget;
 use crate::{Event, Layout, Shell, Size};
 
+#[cfg(feature = "accessibility")]
+use crate::accessibility::accesskit;
+
 /// An overlay container that displays nested overlays
 pub struct Nested<'a, Message, Theme, Renderer> {
     overlay: overlay::Element<'a, Message, Theme, Renderer>,
@@ -145,6 +148,65 @@ where
         }
 
         recurse(&mut self.overlay, layout, renderer, operation);
+    }
+
+    /// Builds the accessibility nodes for this nested overlay, including
+    /// any nested sub-overlays.
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility(
+        &mut self,
+        renderer: &Renderer,
+        bounds: Size,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        fn recurse<Message, Theme, Renderer>(
+            element: &mut overlay::Element<'_, Message, Theme, Renderer>,
+            layout: Layout<'_>,
+            renderer: &Renderer,
+            nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+            id_counter: &mut u64,
+        ) -> Option<accesskit::NodeId>
+        where
+            Renderer: renderer::Renderer,
+        {
+            let mut layouts = layout.children();
+
+            if let Some(layout) = layouts.next() {
+                let overlay = element.as_overlay_mut();
+
+                // Build this overlay's accessibility nodes
+                let root_id = overlay.accessibility(layout, nodes, id_counter);
+
+                // Handle nested overlays recursively
+                if let Some((mut nested, nested_layout)) =
+                    overlay.overlay(layout, renderer).zip(layouts.next())
+                {
+                    let nested_id =
+                        recurse(&mut nested, nested_layout, renderer, nodes, id_counter);
+
+                    // Link nested overlay as child of parent overlay
+                    if let (Some(parent), Some(child)) = (root_id, nested_id) {
+                        if let Some((_, node)) = nodes.iter_mut().find(|(id, _)| *id == parent) {
+                            node.push_child(child);
+                        }
+                    }
+                }
+
+                root_id
+            } else {
+                None
+            }
+        }
+
+        let layout_node = self.layout(renderer, bounds);
+        recurse(
+            &mut self.overlay,
+            Layout::new(&layout_node),
+            renderer,
+            nodes,
+            id_counter,
+        )
     }
 
     /// Processes a runtime [`Event`].

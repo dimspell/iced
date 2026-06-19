@@ -595,7 +595,10 @@ where
 
     /// Returns the accessibility tree update for the [`UserInterface`].
     #[cfg(feature = "accessibility")]
-    pub fn accessibility_tree(&mut self) -> accesskit::TreeUpdate {
+    pub fn accessibility_tree(
+        &mut self,
+        renderer: &Renderer,
+    ) -> accesskit::TreeUpdate {
         let mut nodes = Vec::new();
         let mut id_counter = 1u64;
 
@@ -608,6 +611,33 @@ where
 
         let root = root_id.unwrap_or(accesskit::NodeId(0));
         let focus = find_focused_node_id(&self.state).unwrap_or(root);
+
+        // Build overlay accessibility tree
+        let viewport = Rectangle::with_size(self.bounds);
+        if let Some(mut overlay) = self
+            .root
+            .as_widget_mut()
+            .overlay(
+                &mut self.state,
+                Layout::new(&self.base),
+                renderer,
+                &viewport,
+                Vector::ZERO,
+            )
+            .map(crate::core::overlay::Nested::new)
+        {
+            let overlay_root_id =
+                overlay.accessibility(renderer, self.bounds, &mut nodes, &mut id_counter);
+
+            // Link overlay root as child of the main tree root
+            if let Some(overlay_root_id) = overlay_root_id {
+                if let Some((_, root_node)) =
+                    nodes.iter_mut().find(|(id, _)| *id == root)
+                {
+                    root_node.push_child(overlay_root_id);
+                }
+            }
+        }
 
         accesskit::TreeUpdate {
             nodes,

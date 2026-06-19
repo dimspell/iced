@@ -1050,7 +1050,9 @@ async fn run_instance<P>(
                             }
 
                             // Build and send the updated accessibility tree
-                            window.update_accessibility_tree(interface.accessibility_tree());
+                            window.update_accessibility_tree(
+                                interface.accessibility_tree(&window.renderer),
+                            );
                         }
 
                         let present_span = debug::present(id);

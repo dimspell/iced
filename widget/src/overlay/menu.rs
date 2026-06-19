@@ -1,5 +1,8 @@
 //! Build and show dropdown menus.
 use crate::core::alignment;
+
+#[cfg(feature = "accessibility")]
+use crate::core::accessibility::accesskit;
 use crate::core::border::{self, Border};
 use crate::core::layout::{self, Layout};
 use crate::core::mouse;
@@ -322,6 +325,17 @@ where
         self.list.draw(
             self.tree, renderer, theme, defaults, layout, cursor, &bounds,
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &mut self,
+        layout: crate::core::Layout<'_>,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.list
+            .accessibility(layout, &*self.tree, nodes, id_counter)
     }
 }
 

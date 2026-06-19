@@ -7,6 +7,9 @@ use crate::shell;
 use crate::widget;
 use crate::{Event, Layout, Shell, Size};
 
+#[cfg(feature = "accessibility")]
+use crate::accessibility::accesskit;
+
 /// A generic [`Overlay`].
 pub struct Element<'a, Message, Theme, Renderer> {
     overlay: Box<dyn Overlay<Message, Theme, Renderer> + 'a>,
@@ -42,6 +45,17 @@ where
         Element {
             overlay: Box::new(Map::new(self.overlay, f)),
         }
+    }
+
+    /// Builds the accessibility nodes for this overlay.
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility(
+        &mut self,
+        layout: crate::Layout<'_>,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.as_overlay_mut().accessibility(layout, nodes, id_counter)
     }
 }
 
@@ -121,5 +135,15 @@ where
         self.content
             .overlay(layout, renderer)
             .map(|overlay| overlay.map(self.mapper))
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &mut self,
+        layout: Layout<'_>,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.content.accessibility(layout, nodes, id_counter)
     }
 }
