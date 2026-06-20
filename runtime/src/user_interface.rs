@@ -652,19 +652,38 @@ where
     }
 
     /// Handles an accessibility action request by dispatching it to the
-    /// appropriate widget in the tree.
+    /// appropriate widget in the tree, including any active overlays.
     #[cfg(feature = "accessibility")]
     pub fn handle_accessibility_action(
         &mut self,
+        renderer: &Renderer,
         request: &accesskit::ActionRequest,
         shell: &mut Shell<'_, Message>,
     ) {
+        // Dispatch to root widget tree
         self.root.as_widget_mut().accessibility_action(
             &mut self.state,
             Layout::new(&self.base),
             request,
             shell,
         );
+
+        // Also dispatch to active overlays
+        let viewport = Rectangle::with_size(self.bounds);
+        if let Some(mut overlay) = self
+            .root
+            .as_widget_mut()
+            .overlay(
+                &mut self.state,
+                Layout::new(&self.base),
+                renderer,
+                &viewport,
+                Vector::ZERO,
+            )
+            .map(overlay::Nested::new)
+        {
+            overlay.accessibility_action(renderer, self.bounds, request, shell);
+        }
     }
 
     /// Relayouts and returns a new  [`UserInterface`] using the provided

@@ -209,6 +209,51 @@ where
         )
     }
 
+    /// Handles an accessibility action request for this nested overlay,
+    /// dispatching to overlays recursively.
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility_action(
+        &mut self,
+        renderer: &Renderer,
+        bounds: Size,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        fn recurse<Message, Theme, Renderer>(
+            element: &mut overlay::Element<'_, Message, Theme, Renderer>,
+            layout: Layout<'_>,
+            renderer: &Renderer,
+            action: &accesskit::ActionRequest,
+            shell: &mut Shell<'_, Message>,
+        ) where
+            Renderer: renderer::Renderer,
+        {
+            let mut layouts = layout.children();
+
+            if let Some(layout) = layouts.next() {
+                let overlay = element.as_overlay_mut();
+
+                overlay.accessibility_action(layout, action, shell);
+
+                // Handle nested overlays recursively
+                if let Some((mut nested, nested_layout)) =
+                    overlay.overlay(layout, renderer).zip(layouts.next())
+                {
+                    recurse(&mut nested, nested_layout, renderer, action, shell);
+                }
+            }
+        }
+
+        let layout_node = self.layout(renderer, bounds);
+        recurse(
+            &mut self.overlay,
+            Layout::new(&layout_node),
+            renderer,
+            action,
+            shell,
+        );
+    }
+
     /// Processes a runtime [`Event`].
     pub fn update(
         &mut self,

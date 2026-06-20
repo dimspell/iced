@@ -103,6 +103,16 @@ where
     ) -> Option<accesskit::NodeId> {
         None
     }
+
+    /// Handles an accessibility action request for this overlay.
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _layout: Layout<'_>,
+        _action: &accesskit::ActionRequest,
+        _shell: &mut Shell<'_, Message>,
+    ) {
+    }
 }
 
 /// Returns a [`Group`] of overlay [`Element`] children.

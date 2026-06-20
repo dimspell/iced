@@ -169,6 +169,20 @@ where
         Some(id)
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        for (child, child_layout) in self.children.iter_mut().zip(layout.children()) {
+            child
+                .as_overlay_mut()
+                .accessibility_action(child_layout, action, shell);
+        }
+    }
+
     fn overlay<'a>(
         &'a mut self,
         layout: Layout<'a>,

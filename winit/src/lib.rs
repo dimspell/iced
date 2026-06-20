@@ -1055,7 +1055,7 @@ async fn run_instance<P>(
                                     window.waker.clone(),
                                     &mut messages,
                                 );
-                                interface.handle_accessibility_action(&request, &mut shell);
+                                interface.handle_accessibility_action(&window.renderer, &request, &mut shell);
                             }
 
                             // Build and send the updated accessibility tree

@@ -337,6 +337,21 @@ where
         self.list
             .accessibility(layout, &*self.tree, nodes, id_counter)
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        self.list.accessibility_action(
+            self.tree,
+            layout,
+            action,
+            shell,
+        );
+    }
 }
 
 struct List<'a, 'b, T, Message, Theme, Renderer>
@@ -360,6 +375,8 @@ where
 
 struct ListState {
     is_hovered: Option<bool>,
+    #[cfg(feature = "accessibility")]
+    option_node_ids: std::cell::RefCell<Vec<accesskit::NodeId>>,
 }
 
 impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -374,7 +391,11 @@ where
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(ListState { is_hovered: None })
+        tree::State::new(ListState {
+            is_hovered: None,
+            #[cfg(feature = "accessibility")]
+            option_node_ids: std::cell::RefCell::new(Vec::new()),
+        })
     }
 
     fn size(&self) -> Size<Length> {
@@ -576,6 +597,84 @@ where
                 },
                 *viewport,
             );
+        }
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let list_id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut list_node = accesskit::Node::new(accesskit::Role::List);
+        let mut option_ids = Vec::with_capacity(self.options.len());
+
+        let text_size: f32 = self.text_size.map(|p| p.0).unwrap_or(16.0);
+        let text_line_height = self.line_height.to_absolute(crate::core::Pixels(text_size));
+        let option_height = f32::from(text_line_height) + self.padding.y();
+
+        for (i, option) in self.options.iter().enumerate() {
+            let option_id = accesskit::NodeId(*id_counter);
+            *id_counter += 1;
+
+            let mut option_node = accesskit::Node::new(accesskit::Role::MenuItem);
+            option_node.set_label((self.to_string)(option));
+            option_node.add_action(accesskit::Action::Click);
+
+            // Set bounds so screen readers know where each item sits
+            let bounds = layout.bounds();
+            let option_bounds = accesskit::Rect::new(
+                bounds.x as f64,
+                (bounds.y + option_height * i as f32) as f64,
+                bounds.width as f64,
+                option_height as f64,
+            );
+            option_node.set_bounds(option_bounds);
+
+            nodes.push((option_id, option_node));
+            list_node.push_child(option_id);
+            option_ids.push(option_id);
+        }
+
+        if option_ids.is_empty() {
+            return None;
+        }
+
+        nodes.push((list_id, list_node));
+
+        // Store option node IDs for action dispatch
+        let state = tree.state.downcast_ref::<ListState>();
+        *state.option_node_ids.borrow_mut() = option_ids;
+
+        Some(list_id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if action.action == accesskit::Action::Click {
+            let state = tree.state.downcast_ref::<ListState>();
+            let option_node_ids = state.option_node_ids.borrow();
+            if let Some(index) = option_node_ids
+                .iter()
+                .position(|id| *id == action.target_node)
+            {
+                if let Some(option) = self.options.get(index) {
+                    shell.publish((self.on_selected)(option.clone()));
+                }
+            }
         }
     }
 }

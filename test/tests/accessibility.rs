@@ -3,10 +3,11 @@ use iced_test::simulator;
 use iced_test::core::Theme;
 use iced_test::renderer::Renderer;
 use iced_widget::{
-    button, checkbox, column, container, progress_bar, radio, row, slider, text, text_input,
-    toggler, vertical_slider,
+    button, checkbox, column, container, pick_list, progress_bar, radio, row, slider, text,
+    text_input, toggler, vertical_slider,
 };
 use accesskit::Role;
+use iced_test::core::Point; // for menu overlay positioning tests
 
 /// Find a node in the tree with the given role.
 fn find_node<'a>(
@@ -283,4 +284,68 @@ fn decrement_action_dispatches_slider_message() {
     ui.accessibility_action(&request);
     let messages: Vec<i32> = ui.into_messages().collect();
     assert_eq!(messages, vec![49], "Slider decrement with step=1 should produce 49");
+}
+
+// === MENU / DROPDOWN ACCESSIBILITY ===
+
+#[test]
+fn picklist_menu_items_visible_when_open() {
+    let options = vec!["Option A", "Option B", "Option C"];
+    let mut ui = simulator::<(), Theme, Renderer>(
+        pick_list(Some("Option A"), options.as_slice(), |s: &&str| s.to_string())
+            .on_select(|_| ()),
+    );
+
+    // Click to open the dropdown — PickList should start at origin
+    ui.point_at(Point::new(10.0, 10.0));
+    let _ = ui.simulate(iced_test::simulator::click());
+
+    let tree = ui.accessibility_tree();
+    let items: Vec<&accesskit::Node> = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::MenuItem)
+        .map(|(_, n)| n)
+        .collect();
+
+    assert_eq!(items.len(), 3, "Should have 3 MenuItem nodes when dropdown is open");
+    assert_eq!(items[0].label(), Some("Option A"));
+    assert!(items[0].supports_action(accesskit::Action::Click));
+}
+
+#[test]
+fn picklist_menu_item_click_dispatches_selection() {
+    let options = vec!["Alpha", "Beta", "Gamma"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(
+            Some("Alpha"),
+            options.as_slice(),
+            |s: &&str| s.to_string(),
+        )
+        .on_select(|s| s.to_string()),
+    );
+
+    // Open the dropdown
+    ui.point_at(Point::new(10.0, 10.0));
+    let _ = ui.simulate(iced_test::simulator::click());
+
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| {
+            n.role() == Role::MenuItem
+                && n.label() == Some("Beta")
+        })
+        .expect("Second menu item 'Beta' should exist");
+
+    let request = accesskit::ActionRequest {
+        action: accesskit::Action::Click,
+        target_tree: accesskit::TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    };
+    ui.accessibility_action(&request);
+    let messages: Vec<String> = ui.into_messages().collect();
+    assert_eq!(messages, vec!["Beta"], "Clicking menu item should produce its selected message");
 }

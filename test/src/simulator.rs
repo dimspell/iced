@@ -115,7 +115,8 @@ where
             crate::core::shell::Waker::noop(),
             &mut self.messages,
         );
-        self.raw.handle_accessibility_action(request, &mut shell);
+        self.raw
+            .handle_accessibility_action(&self.renderer, request, &mut shell);
     }
 
     /// Finds the target of the given widget [`Selector`] in the [`Simulator`].
