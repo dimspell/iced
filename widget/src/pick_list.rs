@@ -324,7 +324,16 @@ where
         self
     }
 
-    /// Sets the accessible label of the [`PickList`], used by screen readers.
+    /// Sets the accessible label of the [`PickList`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the pick list.
+    ///
+    /// # Example
+    /// ```ignore
+    /// pick_list("Select...", &items, &selected, Message::Selected)
+    ///     .accessible_label("Choose an option")
+    /// ```
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
         self

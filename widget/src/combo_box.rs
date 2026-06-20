@@ -324,7 +324,16 @@ where
         self
     }
 
-    /// Sets the accessible label of the [`ComboBox`], used by screen readers.
+    /// Sets the accessible label of the [`ComboBox`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the combobox.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ComboBox::new(state, "Choose option...", &options, |opt| Message::Selected(opt))
+    ///     .accessible_label("Options")
+    /// ```
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
         self

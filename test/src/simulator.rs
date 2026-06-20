@@ -92,6 +92,15 @@ where
         }
     }
 
+    /// Returns the current accessibility tree for the [`Simulator`].
+    ///
+    /// This allows testing that the accessibility nodes are correctly built
+    /// for the current UI state.
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility_tree(&mut self) -> accesskit::TreeUpdate {
+        self.raw.accessibility_tree(&mut self.renderer)
+    }
+
     /// Finds the target of the given widget [`Selector`] in the [`Simulator`].
     pub fn find<S>(&mut self, selector: S) -> Result<S::Output, Error>
     where

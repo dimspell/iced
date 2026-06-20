@@ -156,10 +156,18 @@ where
         self
     }
 
-    /// Sets the heading level of the [`Text`].
+    /// Marks the [`Text`] as a heading with the given level.
     ///
-    /// This will mark the text as a heading at the given level (1-6)
-    /// in the accessibility tree.
+    /// This will set the accessibility role to `Heading` with the specified
+    /// level (1-6), which helps screen reader users navigate the document
+    /// structure.
+    ///
+    /// # Example
+    /// ```
+    /// use iced_core::widget::text;
+    /// // Creates a level 1 heading
+    /// let heading = text("Welcome").heading(1);
+    /// ```
     pub fn heading(mut self, level: usize) -> Self {
         self.heading_level = Some(level);
         self

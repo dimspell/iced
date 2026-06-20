@@ -2492,11 +2492,13 @@ dependencies = [
 name = "iced_test"
 version = "0.15.0-dev"
 dependencies = [
+ "accesskit",
  "iced_futures",
  "iced_program",
  "iced_renderer",
  "iced_runtime",
  "iced_selector",
+ "iced_widget",
  "nom",
  "png 0.18.1",
  "sha2",

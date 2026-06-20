@@ -262,7 +262,16 @@ where
         self
     }
 
-    /// Sets the accessible label of the [`TextInput`], used by screen readers.
+    /// Sets the accessible label of the [`TextInput`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the text input.
+    ///
+    /// # Example
+    /// ```ignore
+    /// text_input("", "Search...", &query, Message::SearchChanged)
+    ///     .accessible_label("Search query")
+    /// ```
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
         self

@@ -82,10 +82,16 @@ where
         self
     }
 
-    /// Sets the heading level of the [`Rich`] text.
+    /// Marks the [`Rich`] text as a heading with the given level.
     ///
-    /// This will mark the text as a heading at the given level (1-6)
-    /// in the accessibility tree.
+    /// This will set the accessibility role to `Heading` with the specified
+    /// level (1-6), which helps screen reader users navigate the document
+    /// structure.
+    ///
+    /// # Example
+    /// ```ignore
+    /// rich_text(spans).heading(1)
+    /// ```
     pub fn heading(mut self, level: usize) -> Self {
         self.heading_level = Some(level);
         self

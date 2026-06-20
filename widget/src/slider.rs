@@ -214,7 +214,16 @@ where
         self
     }
 
-    /// Sets the accessible label of the [`Slider`], used by screen readers.
+    /// Sets the accessible label of the [`Slider`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the slider.
+    ///
+    /// # Example
+    /// ```ignore
+    /// slider(0..=100, &volume, Message::VolumeChanged)
+    ///     .accessible_label("Volume level")
+    /// ```
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
         self
