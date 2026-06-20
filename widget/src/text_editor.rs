@@ -112,6 +112,7 @@ where
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -138,6 +139,7 @@ where
             highlighter_settings: (),
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
+            accessible_label: None,
         }
     }
 }
@@ -257,6 +259,7 @@ where
             highlighter_settings: settings,
             highlighter_format: to_format,
             last_status: self.last_status,
+            accessible_label: self.accessible_label,
         }
     }
 
@@ -286,6 +289,15 @@ where
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`TextEditor`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the text editor.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -626,6 +638,10 @@ where
 
         if self.on_edit.is_none() {
             builder.set_disabled();
+        }
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         // Track keyboard focus for the accessibility tree

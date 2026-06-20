@@ -101,6 +101,7 @@ where
     height: Length,
     class: Theme::Class<'a>,
     status: Option<Status>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, T, Message, Theme> VerticalSlider<'a, T, Message, Theme>
@@ -148,6 +149,7 @@ where
             height: Length::Fill,
             class: Theme::default(),
             status: None,
+            accessible_label: None,
         }
     }
 
@@ -203,6 +205,15 @@ where
         Theme::Class<'a>: From<StyleFn<'a, Theme>>,
     {
         self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    /// Sets the accessible label of the [`VerticalSlider`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the slider.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -513,7 +524,17 @@ where
 
         let mut builder = accesskit::Node::new(accesskit::Role::Slider);
 
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+
         let value_f64: f64 = self.value.as_();
+        let min_f64: f64 = self.range.start().as_();
+        let max_f64: f64 = self.range.end().as_();
+
+        builder.set_numeric_value(value_f64);
+        builder.set_min_numeric_value(min_f64);
+        builder.set_max_numeric_value(max_f64);
         builder.set_value(format!("{}", value_f64));
 
         builder.add_action(accesskit::Action::Increment);

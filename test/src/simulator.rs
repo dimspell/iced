@@ -101,6 +101,23 @@ where
         self.raw.accessibility_tree(&mut self.renderer)
     }
 
+    /// Handles an accessibility action request and collects produced messages.
+    ///
+    /// This simulates a screen reader or other assistive technology performing
+    /// an action (e.g. clicking a button, incrementing a slider) on the
+    /// currently focused or targeted widget. Any messages produced by the
+    /// action are pushed into the internal message buffer and can be retrieved
+    /// via [`Simulator::into_messages`].
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility_action(&mut self, request: &accesskit::ActionRequest) {
+        let mut shell = crate::core::shell::Shell::new(
+            &window::Headless,
+            crate::core::shell::Waker::noop(),
+            &mut self.messages,
+        );
+        self.raw.handle_accessibility_action(request, &mut shell);
+    }
+
     /// Finds the target of the given widget [`Selector`] in the [`Simulator`].
     pub fn find<S>(&mut self, selector: S) -> Result<S::Output, Error>
     where

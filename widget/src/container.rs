@@ -212,7 +212,7 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
-        self.content.as_widget_mut().diff(tree);
+        tree.diff_children(std::slice::from_mut(&mut self.content));
 
         let size = self.content.as_widget().size();
         self.width = self.width.stack(size.width);
@@ -239,7 +239,11 @@ where
             self.padding,
             self.horizontal_alignment,
             self.vertical_alignment,
-            |limits| self.content.as_widget_mut().layout(tree, renderer, limits),
+            |limits| {
+                self.content
+                    .as_widget_mut()
+                    .layout(&mut tree.children[0], renderer, limits)
+            },
         )
     }
 
@@ -253,7 +257,7 @@ where
         operation.container(self.id.as_ref(), layout.bounds());
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
-                tree,
+                &mut tree.children[0],
                 layout.children().next().unwrap(),
                 renderer,
                 operation,

@@ -469,9 +469,24 @@ where
             builder.set_toggled(toggled);
         }
 
+        builder.add_action(accesskit::Action::Click);
+
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if action.action == accesskit::Action::Click {
+            shell.publish(self.on_click.clone());
+        }
     }
 }
 
