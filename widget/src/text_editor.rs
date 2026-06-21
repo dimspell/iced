@@ -638,6 +638,8 @@ where
 
         if self.on_edit.is_none() {
             builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::ReplaceSelectedText);
         }
 
         if let Some(label) = &self.accessible_label {

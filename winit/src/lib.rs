@@ -103,7 +103,7 @@ impl From<accesskit_winit::Adapter> for SendAdapter {
     }
 }
 
-// Placeholder accessibility handler implementations for the initial integration.
+// Accessibility handler implementations.
 #[cfg(feature = "accessibility")]
 mod accessibility_handlers {
     use crate::core::accessibility::accesskit::{
@@ -111,10 +111,20 @@ mod accessibility_handlers {
     };
     use std::collections::VecDeque;
     use std::sync::Mutex;
+    use std::sync::OnceLock;
 
     /// Queue of pending accessibility actions to be processed on the main
     /// event loop thread.
     static PENDING_ACTIONS: Mutex<VecDeque<ActionRequest>> = Mutex::new(VecDeque::new());
+
+    /// Shared initial tree update provided to the activation handler.
+    ///
+    /// This is populated once the user interface is built, before the window
+    /// is made visible. When the screen reader queries the view for its
+    /// initial accessibility tree, the activation handler returns this tree
+    /// so the adapter transitions directly to `Active` state, avoiding a
+    /// placeholder tree being visible to assistive technologies.
+    pub(super) static INITIAL_TREE: OnceLock<Mutex<Option<TreeUpdate>>> = OnceLock::new();
 
     /// Takes all pending actions from the queue.
     pub(super) fn drain_actions() -> VecDeque<ActionRequest> {
@@ -124,7 +134,10 @@ mod accessibility_handlers {
     pub(super) struct Activation;
     impl ActivationHandler for Activation {
         fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-            None // The initial tree is provided by update_if_active on the next frame
+            INITIAL_TREE
+                .get()
+                .and_then(|m| m.lock().ok())
+                .and_then(|mut guard| guard.take())
         }
     }
 
@@ -464,6 +477,13 @@ where
                                 let accessibility_adapter = {
                                     use accesskit_winit::Adapter;
                                     use crate::accessibility_handlers;
+
+                                    // Initialize the shared initial tree storage before
+                                    // creating the adapter so that `request_initial_tree`
+                                    // can return the tree once it's built.
+                                    let _ = accessibility_handlers::INITIAL_TREE
+                                        .set(std::sync::Mutex::new(None));
+
                                     // Create the adapter before the window is shown
                                     let adapter = Adapter::with_direct_handlers(
                                         event_loop,
@@ -776,8 +796,19 @@ async fn run_instance<P>(
                 // screen reader has content on first activation.
                 #[cfg(feature = "accessibility")]
                 if let Some(ui) = user_interfaces.get_mut(&id) {
-                    window
-                        .update_accessibility_tree(ui.accessibility_tree(&window.renderer));
+                    let tree = ui.accessibility_tree(&window.renderer);
+
+                    // Store the tree so `request_initial_tree` on the
+                    // activation handler can return it when the screen reader
+                    // first queries the view, transitioning the adapter
+                    // directly to `Active` state.
+                    if let Some(initial_tree) =
+                        accessibility_handlers::INITIAL_TREE.get()
+                    {
+                        *initial_tree.lock().unwrap() = Some(tree.clone());
+                    }
+
+                    window.update_accessibility_tree(tree);
                 }
 
                 if make_visible {
@@ -1180,6 +1211,11 @@ async fn run_instance<P>(
                                 &mut renderer_settings,
                             );
                         } else {
+                            #[cfg(feature = "accessibility")]
+                            if let Some(adapter) = &mut window.accessibility_adapter {
+                                adapter.process_event(&window.raw, &window_event);
+                            }
+
                             window.state.update(&program, &window.raw, &window_event);
 
                             if let Some(event) = conversion::window_event(

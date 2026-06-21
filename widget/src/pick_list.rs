@@ -744,6 +744,10 @@ where
         builder.set_expanded(is_open);
         builder.set_has_popup(accesskit::HasPopup::Menu);
 
+        if self.on_select.is_none() {
+            builder.set_disabled();
+        }
+
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
 

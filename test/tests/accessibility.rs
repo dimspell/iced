@@ -135,6 +135,40 @@ fn text_editor_label() {
 }
 
 #[test]
+fn text_editor_disabled_when_no_on_edit() {
+    use iced_widget::text_editor;
+    let content = text_editor::Content::new();
+    let mut ui = simulator::<(), Theme, Renderer>(
+        text_editor(&content).accessible_label("Bio"),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
+    assert!(node.is_disabled(), "TextEditor without on_edit should be disabled");
+    assert!(
+        !node.supports_action(accesskit::Action::ReplaceSelectedText),
+        "Disabled TextEditor should not advertise ReplaceSelectedText"
+    );
+}
+
+#[test]
+fn text_editor_with_on_edit_has_action() {
+    use iced_widget::text_editor;
+    let content = text_editor::Content::new();
+    let mut ui = simulator::<(), Theme, Renderer>(
+        text_editor(&content)
+            .accessible_label("Bio")
+            .on_action(|_| ()),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
+    assert!(!node.is_disabled(), "TextEditor with on_edit should be enabled");
+    assert!(
+        node.supports_action(accesskit::Action::ReplaceSelectedText),
+        "Enabled TextEditor should advertise ReplaceSelectedText"
+    );
+}
+
+#[test]
 fn progress_bar_properties() {
     let mut ui = simulator::<(), Theme, Renderer>(progress_bar(0.0..=100.0, 50.0));
     let tree = ui.accessibility_tree();
@@ -350,6 +384,17 @@ fn picklist_menu_item_click_dispatches_selection() {
     assert_eq!(messages, vec!["Beta"], "Clicking menu item should produce its selected message");
 }
 
+#[test]
+fn pick_list_disabled_when_no_on_select() {
+    let options = vec!["A", "B"];
+    let mut ui = simulator::<(), Theme, Renderer>(
+        pick_list(Some("A"), options.as_slice(), |s: &&str| s.to_string()),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::ComboBox).expect("PickList ComboBox node");
+    assert!(node.is_disabled(), "PickList without on_select should be disabled");
+}
+
 // === ACCESSIBLE LABEL ON GRAPHIC WIDGETS ===
 
 #[test]
@@ -472,6 +517,18 @@ fn combo_box_menu_item_click_dispatches_selection() {
     ui.accessibility_action(&request);
     let messages: Vec<&str> = ui.into_messages().collect();
     assert_eq!(messages, vec!["Beta"], "Clicking ComboBox item should produce its selected message");
+}
+
+#[test]
+fn combo_box_has_popup() {
+    use iced_widget::combo_box;
+    let state = combo_box::State::new(vec!["A", "B", "C"]);
+    let mut ui = simulator::<(), Theme, Renderer>(
+        combo_box(&state, "Pick...", None::<& &str>, |_: &str| ()),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::ComboBox).expect("ComboBox node");
+    assert_eq!(node.has_popup(), Some(accesskit::HasPopup::Listbox));
 }
 
 // === TABLE ACCESSIBILITY ===

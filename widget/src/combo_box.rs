@@ -745,6 +745,7 @@ where
 
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
+        builder.set_has_popup(accesskit::HasPopup::Listbox);
 
         nodes.push((id, builder));
 
