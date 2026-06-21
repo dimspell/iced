@@ -154,7 +154,10 @@ where
     }
 
     /// Sets the accessible label for this SVG image, providing a text
-    /// alternative for screen readers.
+    /// alternative for screen readers (analogous to HTML's `alt` attribute).
+    ///
+    /// Informative SVG icons should have a descriptive label. Purely
+    /// decorative graphics can omit this method.
     #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());

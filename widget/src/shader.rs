@@ -58,6 +58,9 @@ impl<Message, P: Program<Message>> Shader<Message, P> {
 
     /// Sets the accessible label for this shader widget, providing a text
     /// description for screen readers.
+    ///
+    /// Shader programs often render abstract or animated visuals. Use this
+    /// to describe what the shader displays (e.g., "Animated wave pattern").
     #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
