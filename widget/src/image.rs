@@ -66,6 +66,8 @@ pub struct Image<Handle = image::Handle> {
     opacity: f32,
     scale: f32,
     expand: bool,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<Handle> Image<Handle> {
@@ -83,6 +85,8 @@ impl<Handle> Image<Handle> {
             opacity: 1.0,
             scale: 1.0,
             expand: false,
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -108,6 +112,17 @@ impl<Handle> Image<Handle> {
     /// but without the downside of blank space.
     pub fn expand(mut self, expand: bool) -> Self {
         self.expand = expand;
+        self
+    }
+
+    /// Sets the accessible label for this image, providing a text
+    /// alternative for screen readers (analogous to HTML's `alt` attribute).
+    ///
+    /// Informative images should have a descriptive label. Decorative
+    /// images can omit this method.
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -405,7 +420,11 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        nodes.push((id, accesskit::Node::new(accesskit::Role::Image)));
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+        nodes.push((id, builder));
 
         Some(id)
     }

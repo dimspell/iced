@@ -376,7 +376,7 @@ where
 struct ListState {
     is_hovered: Option<bool>,
     #[cfg(feature = "accessibility")]
-    option_node_ids: std::cell::RefCell<Vec<accesskit::NodeId>>,
+    option_node_ids: std::cell::Cell<Vec<accesskit::NodeId>>,
 }
 
 impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -394,7 +394,7 @@ where
         tree::State::new(ListState {
             is_hovered: None,
             #[cfg(feature = "accessibility")]
-            option_node_ids: std::cell::RefCell::new(Vec::new()),
+            option_node_ids: std::cell::Cell::new(Vec::new()),
         })
     }
 
@@ -651,7 +651,7 @@ where
 
         // Store option node IDs for action dispatch
         let state = tree.state.downcast_ref::<ListState>();
-        *state.option_node_ids.borrow_mut() = option_ids;
+        state.option_node_ids.set(option_ids);
 
         Some(list_id)
     }
@@ -666,7 +666,7 @@ where
     ) {
         if action.action == accesskit::Action::Click {
             let state = tree.state.downcast_ref::<ListState>();
-            let option_node_ids = state.option_node_ids.borrow();
+            let option_node_ids = state.option_node_ids.take();
             if let Some(index) = option_node_ids
                 .iter()
                 .position(|id| *id == action.target_node)

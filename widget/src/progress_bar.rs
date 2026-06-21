@@ -61,6 +61,8 @@ where
     girth: Length,
     is_vertical: bool,
     class: Theme::Class<'a>,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<'a, Theme> ProgressBar<'a, Theme>
@@ -83,6 +85,8 @@ where
             girth: Length::from(Self::DEFAULT_GIRTH),
             is_vertical: false,
             class: Theme::default(),
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -95,6 +99,16 @@ where
     /// Sets the height of the [`ProgressBar`].
     pub fn girth(mut self, girth: impl Into<Length>) -> Self {
         self.girth = girth.into();
+        self
+    }
+
+    /// Sets the accessible label for this progress bar.
+    ///
+    /// Screen readers will announce this label along with the current progress
+    /// value (e.g., "Download progress, 45%").
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -254,6 +268,10 @@ where
 
         // Set as live region so screen readers announce progress changes
         builder.set_live(accesskit::Live::Polite);
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
 
         nodes.push((id, builder));
 

@@ -295,6 +295,8 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
         let child_id = self.content.as_widget().accessibility(
             layout,
             &tree.children[0],
@@ -310,6 +312,12 @@ where
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
         }
+
+        // Signal to AT that this widget has a tooltip popup
+        builder.set_has_popup(accesskit::HasPopup::Menu);
+        let state = tree.state.downcast_ref::<State>();
+        builder.set_expanded(matches!(state, State::Open { .. }));
+
         nodes.push((id, builder));
         Some(id)
     }
@@ -563,5 +571,34 @@ where
             cursor_position,
             &Rectangle::with_size(Size::INFINITE),
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &mut self,
+        layout: Layout<'_>,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        // The tooltip overlay layout has one child — the tooltip content's layout
+        let tooltip_content_layout = layout.children().next()?;
+
+        let child_id = self.tooltip.as_widget().accessibility(
+            tooltip_content_layout,
+            self.tree,
+            nodes,
+            id_counter,
+        )?;
+
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Tooltip);
+        builder.push_child(child_id);
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }

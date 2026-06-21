@@ -18,6 +18,9 @@ workspace = true
 accessibility = [
     "iced_runtime/accessibility",
     "iced_widget/accessibility",
+    "iced_widget/image",
+    "iced_widget/svg",
+    "iced_widget/qr_code",
 ]
 
 [dependencies]

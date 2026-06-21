@@ -66,6 +66,12 @@ where
     data: &'a Data,
     cell_size: f32,
     class: Theme::Class<'a>,
+    /// The accessible label for this QR code, exposed to screen readers.
+    #[cfg(feature = "accessibility")]
+    accessible_label: String,
+    /// The original data encoded in this QR code, exposed to screen readers.
+    #[cfg(feature = "accessibility")]
+    encoded_value: Option<String>,
 }
 
 impl<'a, Theme> QRCode<'a, Theme>
@@ -78,6 +84,10 @@ where
             data,
             cell_size: DEFAULT_CELL_SIZE,
             class: Theme::default(),
+            #[cfg(feature = "accessibility")]
+            accessible_label: String::from("QR Code"),
+            #[cfg(feature = "accessibility")]
+            encoded_value: None,
         }
     }
 
@@ -109,6 +119,28 @@ where
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    /// Sets the accessible label for this QR code.
+    ///
+    /// Defaults to "QR Code" if not set. Provide a more descriptive label
+    /// such as "QR Code for Example Website" to help screen reader users
+    /// understand what the QR code represents.
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = label.into();
+        self
+    }
+
+    /// Sets the encoded data value, exposed to screen readers so AT users
+    /// can extract the information from the QR code.
+    ///
+    /// This should be set to the original data string (e.g., a URL or contact
+    /// information) that the QR code encodes.
+    #[cfg(feature = "accessibility")]
+    pub fn encoded_value(mut self, value: impl Into<String>) -> Self {
+        self.encoded_value = Some(value.into());
         self
     }
 }
@@ -222,7 +254,10 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Image);
-        builder.set_label("QR Code");
+        builder.set_label(self.accessible_label.as_str());
+        if let Some(value) = &self.encoded_value {
+            builder.set_value(value.as_str());
+        }
 
         nodes.push((id, builder));
 

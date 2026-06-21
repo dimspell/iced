@@ -761,22 +761,20 @@ where
     ) {
         use crate::core::accessibility::accesskit;
 
+        let text_input_state = tree.children[0]
+            .state
+            .downcast_mut::<text_input::State<Renderer::Paragraph>>();
+
         match action.action {
             accesskit::Action::Click | accesskit::Action::Expand => {
-                let state = tree
-                    .state
-                    .downcast_mut::<text_input::State<Renderer::Paragraph>>();
-                if !state.is_focused() {
-                    state.focus();
+                if !text_input_state.is_focused() {
+                    text_input_state.focus();
                     _shell.invalidate_layout();
                 }
             }
             accesskit::Action::Collapse => {
-                let state = tree
-                    .state
-                    .downcast_mut::<text_input::State<Renderer::Paragraph>>();
-                if state.is_focused() {
-                    state.unfocus();
+                if text_input_state.is_focused() {
+                    text_input_state.unfocus();
                     _shell.invalidate_layout();
                 }
             }

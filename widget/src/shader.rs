@@ -27,6 +27,8 @@ pub struct Shader<Message, P: Program<Message>> {
     height: Length,
     program: P,
     _message: PhantomData<Message>,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<Message, P: Program<Message>> Shader<Message, P> {
@@ -37,6 +39,8 @@ impl<Message, P: Program<Message>> Shader<Message, P> {
             height: Length::Fixed(100.0),
             program,
             _message: PhantomData,
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -49,6 +53,14 @@ impl<Message, P: Program<Message>> Shader<Message, P> {
     /// Set the `height` of the custom [`Shader`].
     pub fn height(mut self, height: impl Into<Length>) -> Self {
         self.height = height.into();
+        self
+    }
+
+    /// Sets the accessible label for this shader widget, providing a text
+    /// description for screen readers.
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -154,7 +166,11 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        nodes.push((id, accesskit::Node::new(accesskit::Role::GraphicsSymbol)));
+        let mut builder = accesskit::Node::new(accesskit::Role::GraphicsSymbol);
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+        nodes.push((id, builder));
 
         Some(id)
     }

@@ -64,6 +64,8 @@ where
     rotation: Rotation,
     opacity: f32,
     status: Option<Status>,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<'a, Theme> Svg<'a, Theme>
@@ -81,6 +83,8 @@ where
             rotation: Rotation::default(),
             opacity: 1.0,
             status: None,
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -146,6 +150,14 @@ where
     /// and `1.0` meaning completely opaque.
     pub fn opacity(mut self, opacity: impl Into<f32>) -> Self {
         self.opacity = opacity.into();
+        self
+    }
+
+    /// Sets the accessible label for this SVG image, providing a text
+    /// alternative for screen readers.
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -283,7 +295,11 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        nodes.push((id, accesskit::Node::new(accesskit::Role::Image)));
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+        nodes.push((id, builder));
 
         Some(id)
     }
