@@ -134,10 +134,12 @@ mod accessibility_handlers {
     pub(super) struct Activation;
     impl ActivationHandler for Activation {
         fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-            INITIAL_TREE
+            let result = INITIAL_TREE
                 .get()
                 .and_then(|m| m.lock().ok())
-                .and_then(|mut guard| guard.take())
+                .and_then(|mut guard| guard.take());
+            eprintln!("[DEBUG request_initial_tree] returning {:?} (Some|None based on whether tree was available)", if result.is_some() { "Some(tree)" } else { "None" });
+            result
         }
     }
 
@@ -798,6 +800,8 @@ async fn run_instance<P>(
                 if let Some(ui) = user_interfaces.get_mut(&id) {
                     let tree = ui.accessibility_tree(&window.renderer);
 
+                    eprintln!("[DEBUG initial_tree] built tree with {} nodes, make_visible={}", tree.nodes.len(), make_visible);
+
                     // Store the tree so `request_initial_tree` on the
                     // activation handler can return it when the screen reader
                     // first queries the view, transitioning the adapter
@@ -806,6 +810,9 @@ async fn run_instance<P>(
                         accessibility_handlers::INITIAL_TREE.get()
                     {
                         *initial_tree.lock().unwrap() = Some(tree.clone());
+                        eprintln!("[DEBUG initial_tree] stored in INITIAL_TREE");
+                    } else {
+                        eprintln!("[DEBUG initial_tree] INITIAL_TREE not yet initialized!");
                     }
 
                     window.update_accessibility_tree(tree);

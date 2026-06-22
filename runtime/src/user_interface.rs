@@ -613,6 +613,11 @@ where
             &mut id_counter,
         );
 
+        eprintln!("[DEBUG accessibility_tree] root_id: {:?}, nodes count: {}", root_id, nodes.len());
+        for (i, (id, node)) in nodes.iter().enumerate() {
+            eprintln!("[DEBUG accessibility_tree]   node[{}]: id={:?}, role={:?}, children_count={}", i, id, node.role(), node.children().len());
+        }
+
         let root = root_id.unwrap_or(accesskit::NodeId(0));
         let focus = find_focused_node_id(&self.state).unwrap_or(root);
 
