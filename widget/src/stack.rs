@@ -387,6 +387,7 @@ where
             accesskit::Role::GenericContainer
         };
         let mut builder = accesskit::Node::new(role);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
         for child_id in child_ids {
             builder.push_child(child_id);
         }

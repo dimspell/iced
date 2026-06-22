@@ -299,6 +299,7 @@ where
             accesskit::Role::GenericContainer
         };
         let mut builder = accesskit::Node::new(role);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
@@ -322,6 +323,10 @@ where
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
         if let (Some(state), Some(layout)) = (tree.children.first_mut(), layout.children().next()) {
+            if !state.contains_accesskit_node_id(action.target_node) {
+                return;
+            }
+
             self.content
                 .as_widget_mut()
                 .accessibility_action(state, layout, action, shell);

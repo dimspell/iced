@@ -726,7 +726,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
-        _layout: Layout<'_>,
+        layout: Layout<'_>,
         tree: &Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
@@ -738,6 +738,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         if let Some(label) = &self.accessible_label {
             builder.set_label(label.as_str());

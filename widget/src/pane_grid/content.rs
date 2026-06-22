@@ -111,6 +111,7 @@ where
 
             let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
             builder.push_child(body_id);
+            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
             builder.set_label(label.as_str());
             nodes.push((id, builder));
 
@@ -135,6 +136,10 @@ where
         };
 
         if let Some(body_layout) = body_layout {
+            if !tree.children[0].contains_accesskit_node_id(action.target_node) {
+                return;
+            }
+
             self.body.as_widget_mut().accessibility_action(
                 &mut tree.children[0],
                 body_layout,

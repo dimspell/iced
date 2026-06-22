@@ -242,7 +242,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
-        _layout: crate::core::Layout<'_>,
+        layout: crate::core::Layout<'_>,
         tree: &crate::core::widget::Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
@@ -254,6 +254,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
         builder.set_label(self.accessible_label.as_str());
         if let Some(value) = &self.encoded_value {
             builder.set_value(value.as_str());

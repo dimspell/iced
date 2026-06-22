@@ -100,7 +100,8 @@ impl App {
             self.layout_section(),
         ]
         .spacing(24)
-        .padding(20);
+        .padding(20)
+        .accessible_label("Accessibility demo content");
 
         scrollable(content).height(Fill).into()
     }
@@ -133,7 +134,8 @@ impl App {
                     text("Subtracts 1 from the counter"),
                     tooltip::Position::Top,
                 ),
-                text(self.counter).size(24),
+                container(text(self.counter).size(24))
+                    .accessible_label(format!("Counter value {}", self.counter)),
             ]
             .spacing(10)
             .align_y(Center),
@@ -152,9 +154,11 @@ impl App {
                 radio("Option B", 1, Some(self.radio), Message::RadioSelected),
                 radio("Option C", 2, Some(self.radio), Message::RadioSelected),
             ]
-            .spacing(16),
+            .spacing(16)
+            .accessible_label("Radio options"),
         ]
         .spacing(12)
+        .accessible_label("Interactive controls")
         .into()
     }
 
@@ -167,6 +171,7 @@ impl App {
         ]
         .spacing(12)
         .width(Length::FillPortion(2))
+        .accessible_label("Slider controls")
         .into()
     }
 
@@ -179,6 +184,7 @@ impl App {
             progress_bar(0.0..=100.0, self.slider as f32).accessible_label("Volume progress"),
         ]
         .spacing(12)
+        .accessible_label("Text and progress controls")
         .into()
     }
 
@@ -202,14 +208,16 @@ impl App {
                 .spacing(4),
             ]
             .spacing(20),
-            table::table(
+            container(table::table(
                 [table::column(text("Name"), |person: &Person| {
                     text(&person.name)
                 })],
                 &self.people[..],
-            ),
+            ))
+            .accessible_label("People table"),
         ]
         .spacing(12)
+        .accessible_label("Data widgets")
         .into()
     }
 
@@ -228,6 +236,7 @@ impl App {
 
         column![text("Layout Widgets").heading(2), pane_grid,]
             .spacing(12)
+            .accessible_label("Layout widgets")
             .into()
     }
 }

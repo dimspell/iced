@@ -78,6 +78,17 @@ impl Tree {
         self.accesskit_node_id.get()
     }
 
+    /// Returns whether this tree, or any of its children, contains the
+    /// provided accesskit [`NodeId`].
+    #[cfg(feature = "accessibility")]
+    pub fn contains_accesskit_node_id(&self, id: accesskit::NodeId) -> bool {
+        self.accesskit_node_id() == Some(id)
+            || self
+                .children
+                .iter()
+                .any(|child| child.contains_accesskit_node_id(id))
+    }
+
     /// Sets whether this widget has keyboard focus.
     #[cfg(feature = "accessibility")]
     pub fn set_accesskit_focused(&self, focused: bool) {

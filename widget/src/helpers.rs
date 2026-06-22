@@ -722,6 +722,7 @@ where
             *id_counter += 1;
 
             let mut builder = accesskit::Node::new(accesskit::Role::Group);
+            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
             if let Some(content_id) = content_id {
                 builder.push_child(content_id);
             }
@@ -733,13 +734,17 @@ where
         fn accessibility_action(
             &mut self,
             tree: &mut crate::core::widget::Tree,
-            _layout: crate::core::Layout<'_>,
+            layout: crate::core::Layout<'_>,
             action: &accesskit::ActionRequest,
             shell: &mut crate::core::Shell<'_, Message>,
         ) {
+            if !tree.contains_accesskit_node_id(action.target_node) {
+                return;
+            }
+
             self.content
                 .as_widget_mut()
-                .accessibility_action(tree, _layout, action, shell);
+                .accessibility_action(tree, layout, action, shell);
         }
     }
 
@@ -1026,6 +1031,7 @@ where
             *id_counter += 1;
 
             let mut builder = accesskit::Node::new(accesskit::Role::Group);
+            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
             for child_id in &child_ids {
                 builder.push_child(*child_id);
             }
@@ -1047,9 +1053,14 @@ where
                 .zip(&mut tree.children)
                 .zip(layout.children())
             {
+                if !state.contains_accesskit_node_id(action.target_node) {
+                    continue;
+                }
+
                 child
                     .as_widget_mut()
                     .accessibility_action(state, child_layout, action, shell);
+                break;
             }
         }
     }

@@ -1089,6 +1089,9 @@ async fn run_instance<P>(
                                     &request,
                                     &mut shell,
                                 );
+                                shell.revalidate_layout(|diff| {
+                                    interface.revalidate_layout(&mut window.renderer, diff);
+                                });
                                 window.request_redraw(shell.redraw_request());
                             }
 

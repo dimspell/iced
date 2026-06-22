@@ -17,6 +17,11 @@ fn find_node<'a>(tree: &'a accesskit::TreeUpdate, role: Role) -> Option<&'a acce
         .map(|(_, n)| n)
 }
 
+fn has_non_empty_bounds(node: &accesskit::Node) -> bool {
+    node.bounds()
+        .is_some_and(|bounds| bounds.x1 > bounds.x0 && bounds.y1 > bounds.y0)
+}
+
 // === ROLES ===
 
 #[test]
@@ -47,6 +52,50 @@ fn button_with_on_press() {
         node.supports_action(accesskit::Action::Click),
         "Enabled button should advertise Click action"
     );
+}
+
+#[test]
+fn focusable_controls_have_non_empty_bounds() {
+    let mut ui = simulator::<(), Theme, Renderer>(column![
+        button("Button").on_press(()),
+        checkbox(false).label("Checkbox").on_toggle(|_| ()),
+        toggler(false).label("Toggle").on_toggle(|_| ()),
+        radio("Radio", 1, Some(0), |_| ()),
+        slider(0..=100, 50, |_| ()).accessible_label("Slider"),
+        vertical_slider(0..=100, 50, |_| ()).accessible_label("Vertical slider"),
+        text_input("Placeholder", "").on_input(|_| ()),
+        pick_list(Some("A"), ["A", "B"].as_slice(), |s: &&str| {
+            s.to_string()
+        })
+        .on_select(|_| ()),
+    ]);
+
+    let tree = ui.accessibility_tree();
+
+    for role in [
+        Role::Button,
+        Role::CheckBox,
+        Role::Switch,
+        Role::RadioButton,
+        Role::Slider,
+        Role::TextInput,
+        Role::ComboBox,
+    ] {
+        let nodes: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == role)
+            .collect();
+
+        assert!(!nodes.is_empty(), "Expected at least one {role:?} node");
+
+        for (_, node) in nodes {
+            assert!(
+                has_non_empty_bounds(node),
+                "{role:?} node should have non-empty bounds"
+            );
+        }
+    }
 }
 
 #[test]
@@ -316,6 +365,49 @@ fn click_action_targets_only_requested_button() {
 }
 
 #[test]
+fn focus_action_updates_tree_focus_for_controls() {
+    let mut ui = simulator::<(), Theme, Renderer>(column![
+        button("Button").on_press(()),
+        checkbox(false).label("Checkbox").on_toggle(|_| ()),
+        toggler(false).label("Toggle").on_toggle(|_| ()),
+        radio("Radio", 1, Some(0), |_| ()),
+        slider(0..=100, 50, |_| ()).accessible_label("Slider"),
+        text_input("Placeholder", "").on_input(|_| ()),
+        pick_list(Some("A"), ["A", "B"].as_slice(), |s: &&str| {
+            s.to_string()
+        })
+        .on_select(|_| ()),
+    ]);
+
+    for role in [
+        Role::Button,
+        Role::CheckBox,
+        Role::Switch,
+        Role::RadioButton,
+        Role::Slider,
+        Role::TextInput,
+        Role::ComboBox,
+    ] {
+        let tree = ui.accessibility_tree();
+        let (target_id, _) = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == role)
+            .unwrap_or_else(|| panic!("Expected {role:?} node"));
+
+        ui.accessibility_action(&ActionRequest {
+            action: Action::Focus,
+            target_tree: TreeId::ROOT,
+            target_node: *target_id,
+            data: None,
+        });
+
+        let tree = ui.accessibility_tree();
+        assert_eq!(tree.focus, *target_id, "{role:?} should receive focus");
+    }
+}
+
+#[test]
 fn tab_focus_updates_accessibility_focus() {
     let mut ui =
         simulator::<(), Theme, Renderer>(row![button("A").on_press(()), button("B").on_press(())]);
@@ -450,6 +542,31 @@ fn decrement_action_dispatches_slider_message() {
     );
 }
 
+#[test]
+fn slider_increment_targets_only_requested_slider() {
+    let mut ui = simulator::<i32, Theme, Renderer>(row![
+        slider(0..=100, 10, |v| v),
+        slider(0..=100, 50, |v| v + 1000),
+    ]);
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Slider)
+        .nth(1)
+        .expect("Second Slider node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Increment,
+        target_tree: TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![1051]);
+}
+
 // === MENU / DROPDOWN ACCESSIBILITY ===
 
 #[test]
@@ -481,6 +598,40 @@ fn picklist_menu_items_visible_when_open() {
     );
     assert_eq!(items[0].label(), Some("Option A"));
     assert!(items[0].supports_action(accesskit::Action::Click));
+}
+
+#[test]
+fn picklist_expand_action_exposes_menu_items() {
+    let options = vec!["Option A", "Option B", "Option C"];
+    let mut ui = simulator::<(), Theme, Renderer>(
+        pick_list(Some("Option A"), options.as_slice(), |s: &&str| {
+            s.to_string()
+        })
+        .on_select(|_| ()),
+    );
+
+    let tree = ui.accessibility_tree();
+    let (combo_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::ComboBox)
+        .expect("PickList ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Expand,
+        target_tree: TreeId::ROOT,
+        target_node: *combo_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    assert_eq!(
+        tree.nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::MenuItem)
+            .count(),
+        3
+    );
 }
 
 #[test]
@@ -633,6 +784,38 @@ fn combo_box_menu_items_visible_when_focused() {
 }
 
 #[test]
+fn combo_box_expand_action_exposes_menu_items() {
+    use iced_widget::combo_box;
+
+    let state = combo_box::State::new(vec!["A", "B", "C"]);
+    let mut ui =
+        simulator::<(), Theme, Renderer>(combo_box(&state, "Pick...", None::<&&str>, |_: &str| ()));
+
+    let tree = ui.accessibility_tree();
+    let (combo_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::ComboBox)
+        .expect("ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Expand,
+        target_tree: TreeId::ROOT,
+        target_node: *combo_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    assert_eq!(
+        tree.nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::MenuItem)
+            .count(),
+        3
+    );
+}
+
+#[test]
 fn combo_box_menu_item_click_dispatches_selection() {
     use iced_widget::combo_box;
 
@@ -759,6 +942,31 @@ fn checkbox_click_dispatches_toggle() {
 }
 
 #[test]
+fn checkbox_click_targets_only_requested_control() {
+    let mut ui = simulator::<i32, Theme, Renderer>(row![
+        checkbox(false).label("A").on_toggle(|_| 1),
+        checkbox(false).label("B").on_toggle(|_| 2),
+    ]);
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::CheckBox)
+        .nth(1)
+        .expect("Second CheckBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![2]);
+}
+
+#[test]
 fn toggler_click_dispatches_toggle() {
     let mut ui = simulator::<bool, Theme, Renderer>(toggler(false).label("WiFi").on_toggle(|v| v));
     let tree = ui.accessibility_tree();
@@ -784,6 +992,31 @@ fn toggler_click_dispatches_toggle() {
 }
 
 #[test]
+fn toggler_click_targets_only_requested_control() {
+    let mut ui = simulator::<i32, Theme, Renderer>(row![
+        toggler(false).label("A").on_toggle(|_| 1),
+        toggler(false).label("B").on_toggle(|_| 2),
+    ]);
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Switch)
+        .nth(1)
+        .expect("Second Switch node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![2]);
+}
+
+#[test]
 fn radio_click_dispatches_selection() {
     let mut ui = simulator::<i32, Theme, Renderer>(radio("Option A", 1, Some(2), |v| v));
     let tree = ui.accessibility_tree();
@@ -806,6 +1039,31 @@ fn radio_click_dispatches_selection() {
         vec![1],
         "Radio click should produce the selected value (1)"
     );
+}
+
+#[test]
+fn radio_click_targets_only_requested_control() {
+    let mut ui = simulator::<i32, Theme, Renderer>(row![
+        radio("A", 1, Some(0), |v| v),
+        radio("B", 2, Some(0), |v| v),
+    ]);
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::RadioButton)
+        .nth(1)
+        .expect("Second RadioButton node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![2]);
 }
 
 // === FOCUS TRACKING ===

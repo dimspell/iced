@@ -117,6 +117,10 @@ where
         );
         self.raw
             .handle_accessibility_action(&self.renderer, request, &mut shell);
+
+        shell.revalidate_layout(|diff| {
+            self.raw.revalidate_layout(&mut self.renderer, diff);
+        });
     }
 
     /// Finds the target of the given widget [`Selector`] in the [`Simulator`].

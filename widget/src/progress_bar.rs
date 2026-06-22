@@ -243,7 +243,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
-        _layout: crate::core::Layout<'_>,
+        layout: crate::core::Layout<'_>,
         tree: &crate::core::widget::Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
@@ -255,6 +255,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::ProgressIndicator);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         // Normalize the value and format as percentage
         let (range_start, range_end) = self.range.clone().into_inner();

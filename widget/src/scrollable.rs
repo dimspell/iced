@@ -557,6 +557,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
@@ -609,6 +610,7 @@ where
         use crate::core::accessibility::accesskit;
 
         // Handle scroll actions
+        let is_scrollable_target = tree.accesskit_node_id() == Some(action.target_node);
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
         let content_bounds = layout
@@ -619,58 +621,60 @@ where
         let max_scroll_x = (content_bounds.width - bounds.width).max(0.0);
         let max_scroll_y = (content_bounds.height - bounds.height).max(0.0);
 
-        match action.action {
-            accesskit::Action::ScrollDown => {
-                let scroll_amount = 40.0; // pixels per scroll step
-                let new_offset = (state
-                    .offset_y
-                    .absolute(bounds.height, content_bounds.height)
-                    + scroll_amount)
-                    .min(max_scroll_y);
-                state.offset_y = Offset::Absolute(new_offset);
-                shell.invalidate_layout();
-                return;
-            }
-            accesskit::Action::ScrollUp => {
-                let scroll_amount = 40.0;
-                let new_offset = (state
-                    .offset_y
-                    .absolute(bounds.height, content_bounds.height)
-                    - scroll_amount)
-                    .max(0.0);
-                state.offset_y = Offset::Absolute(new_offset);
-                shell.invalidate_layout();
-                return;
-            }
-            accesskit::Action::ScrollLeft => {
-                let scroll_amount = 40.0;
-                let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
-                    - scroll_amount)
-                    .max(0.0);
-                state.offset_x = Offset::Absolute(new_offset);
-                shell.invalidate_layout();
-                return;
-            }
-            accesskit::Action::ScrollRight => {
-                let scroll_amount = 40.0;
-                let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
-                    + scroll_amount)
-                    .min(max_scroll_x);
-                state.offset_x = Offset::Absolute(new_offset);
-                shell.invalidate_layout();
-                return;
-            }
-            accesskit::Action::SetScrollOffset => {
-                if let Some(data) = &action.data {
-                    if let accesskit::ActionData::SetScrollOffset(scroll_offset) = data {
-                        state.offset_x = Offset::Absolute(scroll_offset.x as f32);
-                        state.offset_y = Offset::Absolute(scroll_offset.y as f32);
-                        shell.invalidate_layout();
-                    }
+        if is_scrollable_target {
+            match action.action {
+                accesskit::Action::ScrollDown => {
+                    let scroll_amount = 40.0; // pixels per scroll step
+                    let new_offset = (state
+                        .offset_y
+                        .absolute(bounds.height, content_bounds.height)
+                        + scroll_amount)
+                        .min(max_scroll_y);
+                    state.offset_y = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
                 }
-                return;
+                accesskit::Action::ScrollUp => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state
+                        .offset_y
+                        .absolute(bounds.height, content_bounds.height)
+                        - scroll_amount)
+                        .max(0.0);
+                    state.offset_y = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::ScrollLeft => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                        - scroll_amount)
+                        .max(0.0);
+                    state.offset_x = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::ScrollRight => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                        + scroll_amount)
+                        .min(max_scroll_x);
+                    state.offset_x = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::SetScrollOffset => {
+                    if let Some(data) = &action.data {
+                        if let accesskit::ActionData::SetScrollOffset(scroll_offset) = data {
+                            state.offset_x = Offset::Absolute(scroll_offset.x as f32);
+                            state.offset_y = Offset::Absolute(scroll_offset.y as f32);
+                            shell.invalidate_layout();
+                        }
+                    }
+                    return;
+                }
+                _ => {}
             }
-            _ => {}
         }
 
         // Forward to child for other actions

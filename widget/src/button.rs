@@ -309,6 +309,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Button);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         if self.on_press.is_none() {
             builder.set_disabled();

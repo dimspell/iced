@@ -688,13 +688,21 @@ where
         request: &accesskit::ActionRequest,
         shell: &mut Shell<'_, Message>,
     ) {
+        if request.action == accesskit::Action::Focus {
+            let mut operation = widget::operation::focusable::unfocus::<()>();
+
+            self.operate(renderer, &mut operation);
+        }
+
         // Dispatch to root widget tree
-        self.root.as_widget_mut().accessibility_action(
-            &mut self.state,
-            Layout::new(&self.base),
-            request,
-            shell,
-        );
+        if self.state.contains_accesskit_node_id(request.target_node) {
+            self.root.as_widget_mut().accessibility_action(
+                &mut self.state,
+                Layout::new(&self.base),
+                request,
+                shell,
+            );
+        }
 
         // Also dispatch to active overlays
         let viewport = Rectangle::with_size(self.bounds);
@@ -712,6 +720,24 @@ where
         {
             overlay.accessibility_action(renderer, self.bounds, request, shell);
         }
+    }
+
+    /// Revalidates the current widget layout using the given [`shell::Diff`].
+    pub fn revalidate_layout(&mut self, renderer: &mut Renderer, diff: shell::Diff) {
+        match diff {
+            shell::Diff::Perform => {
+                self.root.as_widget_mut().diff(&mut self.state);
+            }
+            shell::Diff::Skip => {}
+        }
+
+        self.base = self.root.as_widget_mut().layout(
+            &mut self.state,
+            renderer,
+            &layout::Limits::new(Size::ZERO, self.bounds),
+        );
+
+        self.overlay = None;
     }
 
     /// Relayouts and returns a new  [`UserInterface`] using the provided

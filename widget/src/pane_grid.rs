@@ -953,6 +953,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
         for child_id in &child_ids {
             builder.push_child(*child_id);
         }
@@ -975,7 +976,12 @@ where
             .zip(tree.children.iter_mut())
             .zip(layout.children())
         {
+            if !child_tree.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
             content.accessibility_action(child_tree, child_layout, action, shell);
+            break;
         }
     }
 }

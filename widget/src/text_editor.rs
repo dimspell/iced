@@ -613,7 +613,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
-        _layout: Layout<'_>,
+        layout: Layout<'_>,
         tree: &widget::Tree,
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
@@ -625,6 +625,7 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
+        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
 
         // Set the text content as the value
         let text = self.content.text();
