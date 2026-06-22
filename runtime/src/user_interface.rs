@@ -327,6 +327,35 @@ where
                     return overlay_status;
                 }
 
+                #[cfg(feature = "accessibility")]
+                if let Event::Keyboard(crate::core::keyboard::Event::KeyPressed {
+                    key: crate::core::keyboard::Key::Named(
+                        crate::core::keyboard::key::Named::Tab,
+                    ),
+                    modifiers,
+                    ..
+                }) = event
+                {
+                    if modifiers.shift() {
+                        let mut op = crate::core::widget::operation::focusable::focus_previous::<()>();
+                        self.root.as_widget_mut().operate(
+                            &mut self.state,
+                            crate::core::Layout::new(&self.base),
+                            renderer,
+                            &mut op,
+                        );
+                    } else {
+                        let mut op = crate::core::widget::operation::focusable::focus_next::<()>();
+                        self.root.as_widget_mut().operate(
+                            &mut self.state,
+                            crate::core::Layout::new(&self.base),
+                            renderer,
+                            &mut op,
+                        );
+                    }
+                    return event::Status::Captured;
+                }
+
                 let mut shell = Shell::new(window, waker.clone(), messages);
 
                 self.root.as_widget_mut().update(

@@ -66,6 +66,7 @@ use crate::core::touch;
 use crate::core::widget;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
+use crate::core::widget::operation::{self, Focusable, Operation};
 use crate::core::{
     Background, Color, Element, Event, Layout, Length, Pixels, Rectangle, Shell, Size, Theme,
     Widget,
@@ -134,6 +135,7 @@ where
     Theme: Catalog,
     Renderer: text::Renderer,
 {
+    id: Option<widget::Id>,
     is_selected: bool,
     on_click: Message,
     label: String,
@@ -175,6 +177,7 @@ where
         F: FnOnce(V) -> Message,
     {
         Radio {
+            id: None,
             is_selected: Some(value) == selected,
             on_click: f(value),
             label: label.into(),
@@ -189,6 +192,12 @@ where
             class: Theme::default(),
             last_status: None,
         }
+    }
+
+    /// Sets the [`widget::Id`] of the [`Radio`] button.
+    pub fn id(mut self, id: impl Into<widget::Id>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// Sets the size of the [`Radio`] button.
@@ -258,6 +267,23 @@ where
     }
 }
 
+struct State<P: text::Paragraph> {
+    text: widget::text::State<P>,
+    is_focused: bool,
+}
+
+impl<P: text::Paragraph> operation::Focusable for State<P> {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Radio<'_, Message, Theme, Renderer>
 where
@@ -266,11 +292,14 @@ where
     Renderer: text::Renderer,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<widget::text::State<Renderer::Paragraph>>()
+        tree::Tag::of::<State<Renderer::Paragraph>>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(widget::text::State::<Renderer::Paragraph>::default())
+        tree::State::new(State::<Renderer::Paragraph> {
+            text: widget::text::State::<Renderer::Paragraph>::default(),
+            is_focused: false,
+        })
     }
 
     fn size(&self) -> Size<Length> {
@@ -291,9 +320,10 @@ where
             self.spacing,
             |_| layout::Node::new(Size::new(self.size, self.size)),
             |limits| {
-                let state = tree
+                let state_container = tree
                     .state
-                    .downcast_mut::<widget::text::State<Renderer::Paragraph>>();
+                    .downcast_mut::<State<Renderer::Paragraph>>();
+                let state = &mut state_container.text;
 
                 widget::text::layout(
                     state,
@@ -374,6 +404,17 @@ where
         }
     }
 
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+        operation.focusable(self.id.as_ref(), layout.bounds(), state);
+    }
+
     fn draw(
         &self,
         tree: &Tree,
@@ -432,7 +473,8 @@ where
 
         {
             let label_layout = children.next().unwrap();
-            let state: &widget::text::State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state_container: &State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state = &state_container.text;
 
             crate::text::draw(
                 renderer,
@@ -470,6 +512,12 @@ where
         }
 
         builder.add_action(accesskit::Action::Click);
+        builder.add_action(accesskit::Action::Focus);
+
+        // Track keyboard focus for the accessibility tree
+        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+            tree.set_accesskit_focused(true);
+        }
 
         nodes.push((id, builder));
 
@@ -479,13 +527,16 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut crate::core::widget::Tree,
+        tree: &mut crate::core::widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
         if action.action == accesskit::Action::Click {
             shell.publish(self.on_click.clone());
+        } else if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+            state.focus();
         }
     }
 }

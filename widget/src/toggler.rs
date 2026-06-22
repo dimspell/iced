@@ -38,6 +38,7 @@ use crate::core::renderer;
 use crate::core::text;
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
@@ -232,6 +233,35 @@ where
     }
 }
 
+struct State<P: text::Paragraph> {
+    text: widget::text::State<P>,
+    is_focused: bool,
+}
+
+impl<P: text::Paragraph> State<P> {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
+}
+
+impl<P: text::Paragraph> operation::Focusable for State<P> {
+    fn is_focused(&self) -> bool {
+        State::is_focused(self)
+    }
+    fn focus(&mut self) {
+        State::focus(self);
+    }
+    fn unfocus(&mut self) {
+        State::unfocus(self);
+    }
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Toggler<'_, Message, Theme, Renderer>
 where
@@ -239,11 +269,14 @@ where
     Renderer: text::Renderer,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<widget::text::State<Renderer::Paragraph>>()
+        tree::Tag::of::<State<Renderer::Paragraph>>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(widget::text::State::<Renderer::Paragraph>::default())
+        tree::State::new(State::<Renderer::Paragraph> {
+            text: widget::text::State::default(),
+            is_focused: false,
+        })
     }
 
     fn size(&self) -> Size<Length> {
@@ -281,9 +314,10 @@ where
             },
             |limits| {
                 if let Some(label) = self.label.as_deref() {
-                    let state = tree
+                    let state_container = tree
                         .state
-                        .downcast_mut::<widget::text::State<Renderer::Paragraph>>();
+                        .downcast_mut::<State<Renderer::Paragraph>>();
+                    let state = &mut state_container.text;
 
                     widget::text::layout(
                         state,
@@ -380,6 +414,17 @@ where
         }
     }
 
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+        operation.focusable(None, layout.bounds(), state);
+    }
+
     fn draw(
         &self,
         tree: &Tree,
@@ -402,7 +447,8 @@ where
 
         if self.label.is_some() {
             let label_layout = children.next().unwrap();
-            let state: &widget::text::State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state_container: &State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state = &state_container.text;
 
             crate::text::draw(
                 renderer,
@@ -499,6 +545,10 @@ where
             builder.add_action(accesskit::Action::Click);
         }
 
+        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+            tree.set_accesskit_focused(true);
+        }
+
         nodes.push((id, builder));
 
         Some(id)
@@ -507,11 +557,16 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut crate::core::widget::Tree,
+        tree: &mut crate::core::widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+            state.focus();
+        }
+
         if action.action == accesskit::Action::Click {
             if let Some(on_toggle) = &self.on_toggle {
                 shell.publish((on_toggle)(!self.is_toggled));

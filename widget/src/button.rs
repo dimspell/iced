@@ -23,8 +23,11 @@ use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::theme::palette;
 use crate::core::touch;
-use crate::core::widget::Operation;
+use crate::core::widget::operation::{self, Operation};
+#[cfg(feature = "accessibility")]
+use crate::core::widget::operation::Focusable;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::Id;
 use crate::core::window;
 use crate::core::{
     Background, Color, Element, Event, Layout, Length, Padding, Rectangle, Shadow, Shell, Size,
@@ -73,6 +76,7 @@ where
     Renderer: crate::core::Renderer,
     Theme: Catalog,
 {
+    id: Option<Id>,
     content: Element<'a, Message, Theme, Renderer>,
     on_press: Option<OnPress<'a, Message>>,
     width: Length,
@@ -107,6 +111,7 @@ where
         let content = content.into();
 
         Button {
+            id: None,
             content,
             on_press: None,
             width: Length::Fit,
@@ -173,6 +178,13 @@ where
         self
     }
 
+    /// Sets the [`widget::Id`] of the [`Button`].
+    #[must_use]
+    pub fn id(mut self, id: impl Into<Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
     /// Sets the style of the [`Button`].
     #[must_use]
     pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
@@ -195,6 +207,21 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct State {
     is_pressed: bool,
+    is_focused: bool,
+}
+
+impl operation::Focusable for State {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -248,6 +275,10 @@ where
         operation: &mut dyn Operation,
     ) {
         operation.container(None, layout.bounds());
+
+        let state = tree.state.downcast_mut::<State>();
+        operation.focusable(self.id.as_ref(), layout.bounds(), state);
+
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
@@ -291,6 +322,10 @@ where
             builder.set_labelled_by(vec![child_id]);
         }
 
+        if tree.state.downcast_ref::<State>().is_focused {
+            tree.set_accesskit_focused(true);
+        }
+
         nodes.push((id, builder));
 
         Some(id)
@@ -299,7 +334,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut crate::core::widget::Tree,
+        tree: &mut crate::core::widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
@@ -308,6 +343,9 @@ where
             if let Some(on_press) = &self.on_press {
                 shell.publish(on_press.get());
             }
+        } else if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State>();
+            state.focus();
         }
     }
 

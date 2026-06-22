@@ -70,6 +70,7 @@ use crate::core::renderer;
 use crate::core::text::paragraph;
 use crate::core::text::{self, Text};
 use crate::core::touch;
+use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
@@ -562,6 +563,17 @@ where
         }
     }
 
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+        operation.focusable(None, layout.bounds(), state);
+    }
+
     fn mouse_interaction(
         &self,
         _tree: &Tree,
@@ -751,6 +763,11 @@ where
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
 
+        // Track keyboard focus for the accessibility tree
+        if state.is_focused {
+            tree.set_accesskit_focused(true);
+        }
+
         nodes.push((id, builder));
 
         Some(id)
@@ -776,6 +793,9 @@ where
             accesskit::Action::Collapse => {
                 state.is_open = false;
                 _shell.invalidate_layout();
+            }
+            accesskit::Action::Focus => {
+                state.is_focused = true;
             }
             _ => {}
         }
@@ -857,6 +877,7 @@ struct State<P: text::Paragraph> {
     hovered_option: Option<usize>,
     options: Vec<paragraph::Plain<P>>,
     placeholder: paragraph::Plain<P>,
+    is_focused: bool,
 }
 
 impl<P: text::Paragraph> State<P> {
@@ -869,7 +890,22 @@ impl<P: text::Paragraph> State<P> {
             hovered_option: Option::default(),
             options: Vec::new(),
             placeholder: paragraph::Plain::default(),
+            is_focused: false,
         }
+    }
+}
+
+impl<P: text::Paragraph> operation::Focusable for State<P> {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
     }
 }
 

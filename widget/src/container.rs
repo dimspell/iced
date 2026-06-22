@@ -61,6 +61,7 @@ where
     Renderer: core::Renderer,
 {
     id: Option<widget::Id>,
+    accessible_label: Option<String>,
     padding: Padding,
     width: Length,
     height: Length,
@@ -82,6 +83,7 @@ where
 
         Container {
             id: None,
+            accessible_label: None,
             padding: Padding::ZERO,
             width: Length::Fit,
             height: Length::Fit,
@@ -96,6 +98,12 @@ where
     /// Sets the [`widget::Id`] of the [`Container`].
     pub fn id(mut self, id: impl Into<widget::Id>) -> Self {
         self.id = Some(id.into());
+        self
+    }
+
+    /// Sets the accessible label of the [`Container`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -285,10 +293,19 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
+        }
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         nodes.push((id, builder));

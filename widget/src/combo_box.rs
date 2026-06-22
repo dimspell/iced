@@ -716,23 +716,11 @@ where
     ) -> Option<accesskit::NodeId> {
         use crate::core::accessibility::accesskit;
 
-        // Forward to the inner TextInput first
-        let child_id = self.text_input.accessibility(
-            _layout,
-            &tree.children[0],
-            nodes,
-            id_counter,
-        );
-
         let id = accesskit::NodeId(*id_counter);
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
-
-        if let Some(child_id) = child_id {
-            builder.push_child(child_id);
-        }
 
         if let Some(label) = &self.accessible_label {
             builder.set_label(label.as_str());
@@ -740,12 +728,18 @@ where
 
         // Set the current value
         if !self.selection.is_empty() {
-            builder.set_value(self.selection.to_string());
+            builder.set_value(self.selection.clone());
         }
 
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
         builder.set_has_popup(accesskit::HasPopup::Listbox);
+
+        // Track keyboard focus for the accessibility tree
+        let state = tree.state.downcast_ref::<Internal<T, Renderer>>();
+        if state.editor.input.is_focused() {
+            tree.set_accesskit_focused(true);
+        }
 
         nodes.push((id, builder));
 
@@ -758,26 +752,27 @@ where
         tree: &mut widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
-        _shell: &mut crate::core::Shell<'_, Message>,
+        shell: &mut crate::core::Shell<'_, Message>,
     ) {
         use crate::core::accessibility::accesskit;
 
-        let text_input_state = tree.children[0]
-            .state
-            .downcast_mut::<text_input::State<Renderer::Paragraph>>();
+        let state = tree.state.downcast_mut::<Internal<T, Renderer>>();
 
         match action.action {
             accesskit::Action::Click | accesskit::Action::Expand => {
-                if !text_input_state.is_focused() {
-                    text_input_state.focus();
-                    _shell.invalidate_layout();
+                if !state.editor.input.is_focused() {
+                    state.editor.input.focus();
+                    shell.invalidate_layout();
                 }
             }
             accesskit::Action::Collapse => {
-                if text_input_state.is_focused() {
-                    text_input_state.unfocus();
-                    _shell.invalidate_layout();
+                if state.editor.input.is_focused() {
+                    state.editor.input.unfocus();
+                    shell.invalidate_layout();
                 }
+            }
+            accesskit::Action::Focus => {
+                state.editor.input.focus();
             }
             _ => {}
         }

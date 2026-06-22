@@ -71,6 +71,7 @@ where
     snap_within_viewport: bool,
     delay: Duration,
     class: Theme::Class<'a>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> Tooltip<'a, Message, Theme, Renderer>
@@ -98,6 +99,7 @@ where
             snap_within_viewport: true,
             delay: Duration::ZERO,
             class: Theme::default(),
+            accessible_label: None,
         }
     }
 
@@ -142,6 +144,12 @@ where
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`Tooltip`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -308,7 +316,12 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
         }
@@ -317,6 +330,10 @@ where
         builder.set_has_popup(accesskit::HasPopup::Menu);
         let state = tree.state.downcast_ref::<State>();
         builder.set_expanded(matches!(state, State::Open { .. }));
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
 
         nodes.push((id, builder));
         Some(id)

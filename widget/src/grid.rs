@@ -12,6 +12,7 @@ pub struct Grid<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> {
     columns: Constraint,
     width: Option<Pixels>,
     height: Sizing,
+    accessible_label: Option<String>,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
 }
 
@@ -50,6 +51,7 @@ where
             columns: Constraint::Amount(3),
             width: None,
             height: Sizing::AspectRatio(1.0),
+            accessible_label: None,
             children,
         }
     }
@@ -107,6 +109,12 @@ where
         } else {
             self
         }
+    }
+
+    /// Sets the accessible label of the [`Grid`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
     }
 
     /// Extends the [`Grid`] with the given children.
@@ -359,9 +367,17 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
         for child_id in child_ids {
             builder.push_child(child_id);
+        }
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         nodes.push((id, builder));

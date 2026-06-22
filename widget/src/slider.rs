@@ -35,7 +35,10 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::touch;
+use crate::core::widget::operation;
+use crate::core::widget::operation::Focusable;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::Operation;
 use crate::core::window;
 use crate::core::{
     self, Background, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size,
@@ -545,6 +548,17 @@ where
         }
     }
 
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State>();
+        operation.focusable(None, layout.bounds(), state);
+    }
+
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
@@ -574,6 +588,12 @@ where
 
         builder.add_action(accesskit::Action::Increment);
         builder.add_action(accesskit::Action::Decrement);
+        builder.add_action(accesskit::Action::Focus);
+
+        // Track keyboard focus for the accessibility tree
+        if tree.state.downcast_ref::<State>().is_focused {
+            tree.set_accesskit_focused(true);
+        }
 
         nodes.push((id, builder));
 
@@ -583,24 +603,35 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut crate::core::widget::Tree,
+        tree: &mut crate::core::widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        let current: f64 = self.value.as_();
-        let new_value: f64 = match action.action {
+        match action.action {
+            accesskit::Action::Focus => {
+                let state = tree.state.downcast_mut::<State>();
+                state.focus();
+            }
             accesskit::Action::Increment => {
-                (current + self.step).min(self.range.end().as_())
+                let current: f64 = self.value.as_();
+                let new_value: f64 =
+                    (current + self.step).min(self.range.end().as_());
+
+                if let Some(value) = T::from_f64(new_value) {
+                    shell.publish((self.on_change)(value));
+                }
             }
             accesskit::Action::Decrement => {
-                (current - self.step).max(self.range.start().as_())
-            }
-            _ => return,
-        };
+                let current: f64 = self.value.as_();
+                let new_value: f64 =
+                    (current - self.step).max(self.range.start().as_());
 
-        if let Some(value) = T::from_f64(new_value) {
-            shell.publish((self.on_change)(value));
+                if let Some(value) = T::from_f64(new_value) {
+                    shell.publish((self.on_change)(value));
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -622,6 +653,21 @@ where
 struct State {
     is_dragging: bool,
     keyboard_modifiers: keyboard::Modifiers,
+    is_focused: bool,
+}
+
+impl operation::Focusable for State {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
 }
 
 /// The possible status of a [`Slider`].

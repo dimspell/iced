@@ -23,6 +23,7 @@ pub struct Stack<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> 
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     clip: bool,
     base_layer: usize,
+    accessible_label: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> Stack<'a, Message, Theme, Renderer>
@@ -56,6 +57,7 @@ where
             children,
             clip: false,
             base_layer: 0,
+            accessible_label: None,
         }
     }
 
@@ -104,6 +106,12 @@ where
     /// By default, it is set to `false`.
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Sets the accessible label of the [`Stack`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -372,9 +380,17 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
         for child_id in child_ids {
             builder.push_child(child_id);
+        }
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         nodes.push((id, builder));

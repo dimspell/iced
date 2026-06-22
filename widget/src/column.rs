@@ -38,6 +38,7 @@ pub struct Column<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer>
     height: Length,
     align: Alignment,
     clip: bool,
+    accessible_label: Option<String>,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
 }
 
@@ -73,6 +74,7 @@ where
             height: Length::Fit,
             align: Alignment::Start,
             clip: false,
+            accessible_label: None,
             children,
         }
     }
@@ -115,6 +117,12 @@ where
     /// overflow.
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Sets the accessible label of the [`Column`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -263,9 +271,17 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
         for child_id in &child_ids {
             builder.push_child(*child_id);
+        }
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
         }
 
         nodes.push((id, builder));
