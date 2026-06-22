@@ -273,12 +273,10 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
-        let content_id = self.content.as_widget().accessibility(
-            layout,
-            tree,
-            nodes,
-            id_counter,
-        );
+        let content_id = self
+            .content
+            .as_widget()
+            .accessibility(layout, tree, nodes, id_counter);
 
         let id = accesskit::NodeId(*id_counter);
         tree.set_accesskit_node_id(id);

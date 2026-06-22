@@ -599,7 +599,11 @@ where
         use accesskit::Role;
 
         let columns = self.columns.len();
-        let rows = if columns > 0 { self.cells.len() / columns } else { 0 };
+        let rows = if columns > 0 {
+            self.cells.len() / columns
+        } else {
+            0
+        };
 
         // Get child node IDs, grouped by rows
         let mut row_cell_ids: Vec<Vec<accesskit::NodeId>> = Vec::new();
@@ -623,7 +627,11 @@ where
                     *id_counter += 1;
 
                     let is_header_row = row == 0;
-                    let mut wrapper = accesskit::Node::new(if is_header_row { Role::ColumnHeader } else { Role::Cell });
+                    let mut wrapper = accesskit::Node::new(if is_header_row {
+                        Role::ColumnHeader
+                    } else {
+                        Role::Cell
+                    });
                     wrapper.push_child(cell_id);
                     wrapper.set_row_index(row);
                     wrapper.set_column_index(col);

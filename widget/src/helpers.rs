@@ -712,12 +712,10 @@ where
             nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
             id_counter: &mut u64,
         ) -> Option<accesskit::NodeId> {
-            let content_id = self.content.as_widget().accessibility(
-                layout,
-                tree,
-                nodes,
-                id_counter,
-            );
+            let content_id = self
+                .content
+                .as_widget()
+                .accessibility(layout, tree, nodes, id_counter);
 
             let id = accesskit::NodeId(*id_counter);
             tree.set_accesskit_node_id(id);
@@ -1005,14 +1003,15 @@ where
 
             let mut child_ids = Vec::new();
 
-            for ((child, state), child_layout) in
-                [&self.base, &self.top].iter()
-                    .zip(&tree.children)
-                    .zip(layout.children())
+            for ((child, state), child_layout) in [&self.base, &self.top]
+                .iter()
+                .zip(&tree.children)
+                .zip(layout.children())
             {
-                if let Some(child_id) = child
-                    .as_widget()
-                    .accessibility(child_layout, state, nodes, id_counter)
+                if let Some(child_id) =
+                    child
+                        .as_widget()
+                        .accessibility(child_layout, state, nodes, id_counter)
                 {
                     child_ids.push(child_id);
                 }
@@ -1043,10 +1042,10 @@ where
             action: &accesskit::ActionRequest,
             shell: &mut crate::core::Shell<'_, Message>,
         ) {
-            for ((child, state), child_layout) in
-                [&mut self.base, &mut self.top].iter_mut()
-                    .zip(&mut tree.children)
-                    .zip(layout.children())
+            for ((child, state), child_layout) in [&mut self.base, &mut self.top]
+                .iter_mut()
+                .zip(&mut tree.children)
+                .zip(layout.children())
             {
                 child
                     .as_widget_mut()

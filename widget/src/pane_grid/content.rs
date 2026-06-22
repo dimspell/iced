@@ -109,8 +109,7 @@ where
             let id = accesskit::NodeId(*id_counter);
             *id_counter += 1;
 
-            let mut builder =
-                accesskit::Node::new(accesskit::Role::GenericContainer);
+            let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
             builder.push_child(body_id);
             builder.set_label(label.as_str());
             nodes.push((id, builder));
@@ -136,9 +135,12 @@ where
         };
 
         if let Some(body_layout) = body_layout {
-            self.body
-                .as_widget_mut()
-                .accessibility_action(&mut tree.children[0], body_layout, action, shell);
+            self.body.as_widget_mut().accessibility_action(
+                &mut tree.children[0],
+                body_layout,
+                action,
+                shell,
+            );
         }
     }
 

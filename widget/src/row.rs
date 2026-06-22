@@ -598,8 +598,7 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        self.row
-            .accessibility_action(tree, layout, action, shell);
+        self.row.accessibility_action(tree, layout, action, shell);
     }
 
     fn update(

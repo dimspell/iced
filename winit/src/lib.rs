@@ -44,7 +44,7 @@ use crate::core::shell;
 use crate::core::theme;
 use crate::core::time::Instant;
 use crate::core::widget::operation;
-use crate::core::{Point, Renderer, Size};
+use crate::core::{Point, Size};
 use crate::futures::futures::channel::mpsc;
 use crate::futures::futures::channel::oneshot;
 use crate::futures::futures::task;
@@ -107,7 +107,7 @@ impl From<accesskit_winit::Adapter> for SendAdapter {
 #[cfg(feature = "accessibility")]
 mod accessibility_handlers {
     use crate::core::accessibility::accesskit::{
-        ActivationHandler, ActionHandler, ActionRequest, DeactivationHandler, TreeUpdate,
+        ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate,
     };
     use std::collections::VecDeque;
     use std::sync::Mutex;
@@ -134,12 +134,10 @@ mod accessibility_handlers {
     pub(super) struct Activation;
     impl ActivationHandler for Activation {
         fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-            let result = INITIAL_TREE
+            INITIAL_TREE
                 .get()
                 .and_then(|m| m.lock().ok())
-                .and_then(|mut guard| guard.take());
-            eprintln!("[DEBUG request_initial_tree] returning {:?} (Some|None based on whether tree was available)", if result.is_some() { "Some(tree)" } else { "None" });
-            result
+                .and_then(|mut guard| guard.take())
         }
     }
 
@@ -477,8 +475,8 @@ where
 
                                 #[cfg(feature = "accessibility")]
                                 let accessibility_adapter = {
-                                    use accesskit_winit::Adapter;
                                     use crate::accessibility_handlers;
+                                    use accesskit_winit::Adapter;
 
                                     // Initialize the shared initial tree storage before
                                     // creating the adapter so that `request_initial_tree`
@@ -800,19 +798,12 @@ async fn run_instance<P>(
                 if let Some(ui) = user_interfaces.get_mut(&id) {
                     let tree = ui.accessibility_tree(&window.renderer);
 
-                    eprintln!("[DEBUG initial_tree] built tree with {} nodes, make_visible={}", tree.nodes.len(), make_visible);
-
                     // Store the tree so `request_initial_tree` on the
                     // activation handler can return it when the screen reader
                     // first queries the view, transitioning the adapter
                     // directly to `Active` state.
-                    if let Some(initial_tree) =
-                        accessibility_handlers::INITIAL_TREE.get()
-                    {
+                    if let Some(initial_tree) = accessibility_handlers::INITIAL_TREE.get() {
                         *initial_tree.lock().unwrap() = Some(tree.clone());
-                        eprintln!("[DEBUG initial_tree] stored in INITIAL_TREE");
-                    } else {
-                        eprintln!("[DEBUG initial_tree] INITIAL_TREE not yet initialized!");
                     }
 
                     window.update_accessibility_tree(tree);
@@ -1093,7 +1084,12 @@ async fn run_instance<P>(
                                     window.waker.clone(),
                                     &mut messages,
                                 );
-                                interface.handle_accessibility_action(&window.renderer, &request, &mut shell);
+                                interface.handle_accessibility_action(
+                                    &window.renderer,
+                                    &request,
+                                    &mut shell,
+                                );
+                                window.request_redraw(shell.redraw_request());
                             }
 
                             // Build and send the updated accessibility tree

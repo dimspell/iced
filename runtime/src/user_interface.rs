@@ -1,5 +1,6 @@
 //! Implement your own event loop to drive a user interface.
 use crate::core::event::{self, Event};
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
@@ -327,35 +328,6 @@ where
                     return overlay_status;
                 }
 
-                #[cfg(feature = "accessibility")]
-                if let Event::Keyboard(crate::core::keyboard::Event::KeyPressed {
-                    key: crate::core::keyboard::Key::Named(
-                        crate::core::keyboard::key::Named::Tab,
-                    ),
-                    modifiers,
-                    ..
-                }) = event
-                {
-                    if modifiers.shift() {
-                        let mut op = crate::core::widget::operation::focusable::focus_previous::<()>();
-                        self.root.as_widget_mut().operate(
-                            &mut self.state,
-                            crate::core::Layout::new(&self.base),
-                            renderer,
-                            &mut op,
-                        );
-                    } else {
-                        let mut op = crate::core::widget::operation::focusable::focus_next::<()>();
-                        self.root.as_widget_mut().operate(
-                            &mut self.state,
-                            crate::core::Layout::new(&self.base),
-                            renderer,
-                            &mut op,
-                        );
-                    }
-                    return event::Status::Captured;
-                }
-
                 let mut shell = Shell::new(window, waker.clone(), messages);
 
                 self.root.as_widget_mut().update(
@@ -417,6 +389,28 @@ where
 
                 if shell.are_widgets_invalid() {
                     outdated = true;
+                }
+
+                if shell.event_status() == event::Status::Ignored
+                    && let Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Tab),
+                        modifiers,
+                        ..
+                    }) = event
+                {
+                    if modifiers.shift() {
+                        let mut op = widget::operation::focusable::focus_previous::<()>();
+
+                        self.operate(renderer, &mut op);
+                    } else {
+                        let mut op = widget::operation::focusable::focus_next::<()>();
+
+                        self.operate(renderer, &mut op);
+                    }
+
+                    redraw_request = redraw_request.min(window::RedrawRequest::NextFrame);
+
+                    return event::Status::Captured;
                 }
 
                 shell.event_status().merge(overlay_status)
@@ -585,7 +579,17 @@ where
 
     /// Applies a [`widget::Operation`] to the [`UserInterface`].
     pub fn operate(&mut self, renderer: &Renderer, operation: &mut dyn widget::Operation) {
+        self.operate_once(renderer, operation);
 
+        let mut outcome = operation.finish();
+
+        while let widget::operation::Outcome::Chain(mut next) = outcome {
+            self.operate_once(renderer, &mut *next);
+            outcome = next.finish();
+        }
+    }
+
+    fn operate_once(&mut self, renderer: &Renderer, operation: &mut dyn widget::Operation) {
         let viewport = Rectangle::with_size(self.bounds);
 
         self.root.as_widget_mut().operate(
@@ -624,10 +628,7 @@ where
 
     /// Returns the accessibility tree update for the [`UserInterface`].
     #[cfg(feature = "accessibility")]
-    pub fn accessibility_tree(
-        &mut self,
-        renderer: &Renderer,
-    ) -> accesskit::TreeUpdate {
+    pub fn accessibility_tree(&mut self, renderer: &Renderer) -> accesskit::TreeUpdate {
         // Reset focus flags from the previous frame so only widgets that
         // are currently focused report themselves.
         reset_accesskit_focus(&self.state);
@@ -641,11 +642,6 @@ where
             &mut nodes,
             &mut id_counter,
         );
-
-        eprintln!("[DEBUG accessibility_tree] root_id: {:?}, nodes count: {}", root_id, nodes.len());
-        for (i, (id, node)) in nodes.iter().enumerate() {
-            eprintln!("[DEBUG accessibility_tree]   node[{}]: id={:?}, role={:?}, children_count={}", i, id, node.role(), node.children().len());
-        }
 
         let root = root_id.unwrap_or(accesskit::NodeId(0));
         let focus = find_focused_node_id(&self.state).unwrap_or(root);
@@ -669,9 +665,7 @@ where
 
             // Link overlay root as child of the main tree root
             if let Some(overlay_root_id) = overlay_root_id {
-                if let Some((_, root_node)) =
-                    nodes.iter_mut().find(|(id, _)| *id == root)
-                {
+                if let Some((_, root_node)) = nodes.iter_mut().find(|(id, _)| *id == root) {
                     root_node.push_child(overlay_root_id);
                 }
             }

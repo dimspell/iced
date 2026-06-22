@@ -32,6 +32,7 @@
 //! ```
 use crate::core::alignment;
 use crate::core::border;
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
@@ -314,9 +315,7 @@ where
             },
             |limits| {
                 if let Some(label) = self.label.as_deref() {
-                    let state_container = tree
-                        .state
-                        .downcast_mut::<State<Renderer::Paragraph>>();
+                    let state_container = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
                     let state = &mut state_container.text;
 
                     widget::text::layout(
@@ -346,7 +345,7 @@ where
 
     fn update(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -366,6 +365,22 @@ where
                 if mouse_over {
                     shell.publish(on_toggle(!self.is_toggled));
                     shell.capture_event();
+                }
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree
+                    .state
+                    .downcast_ref::<State<Renderer::Paragraph>>()
+                    .is_focused()
+                    && self.on_toggle.is_some() =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        shell.publish(on_toggle(!self.is_toggled));
+                        shell.capture_event();
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -474,7 +489,15 @@ where
                 bounds,
                 border: Border {
                     radius: border_radius,
-                    width: style.background_border_width,
+                    width: if tree
+                        .state
+                        .downcast_ref::<State<Renderer::Paragraph>>()
+                        .is_focused()
+                    {
+                        style.background_border_width.max(2.0)
+                    } else {
+                        style.background_border_width
+                    },
                     color: style.background_border_color,
                 },
                 ..renderer::Quad::default()
@@ -545,7 +568,13 @@ where
             builder.add_action(accesskit::Action::Click);
         }
 
-        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+        builder.add_action(accesskit::Action::Focus);
+
+        if tree
+            .state
+            .downcast_ref::<State<Renderer::Paragraph>>()
+            .is_focused()
+        {
             tree.set_accesskit_focused(true);
         }
 
@@ -562,14 +591,26 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .unfocus();
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::Focus {
             let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
             state.focus();
+            shell.request_redraw();
         }
 
         if action.action == accesskit::Action::Click {
             if let Some(on_toggle) = &self.on_toggle {
                 shell.publish((on_toggle)(!self.is_toggled));
+                shell.request_redraw();
             }
         }
     }

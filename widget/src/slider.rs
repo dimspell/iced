@@ -35,10 +35,9 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::touch;
-use crate::core::widget::operation;
-use crate::core::widget::operation::Focusable;
-use crate::core::widget::tree::{self, Tree};
 use crate::core::widget::Operation;
+use crate::core::widget::operation;
+use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
     self, Background, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size,
@@ -397,7 +396,7 @@ where
                     shell.capture_event();
                 }
                 Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
-                    if cursor.is_over(layout.bounds()) =>
+                    if cursor.is_over(layout.bounds()) || state.is_focused =>
                 {
                     match key {
                         Key::Named(key::Named::ArrowUp) => {
@@ -422,7 +421,7 @@ where
 
         let current_status = if state.is_dragging {
             Status::Dragged
-        } else if cursor.is_over(layout.bounds()) {
+        } else if cursor.is_over(layout.bounds()) || state.is_focused {
             Status::Hovered
         } else {
             Status::Active
@@ -608,27 +607,36 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State>().is_focused = false;
+            }
+
+            return;
+        }
+
         match action.action {
             accesskit::Action::Focus => {
                 let state = tree.state.downcast_mut::<State>();
-                state.focus();
+                state.is_focused = true;
+                shell.request_redraw();
             }
             accesskit::Action::Increment => {
                 let current: f64 = self.value.as_();
-                let new_value: f64 =
-                    (current + self.step).min(self.range.end().as_());
+                let new_value: f64 = (current + self.step).min(self.range.end().as_());
 
                 if let Some(value) = T::from_f64(new_value) {
                     shell.publish((self.on_change)(value));
+                    shell.request_redraw();
                 }
             }
             accesskit::Action::Decrement => {
                 let current: f64 = self.value.as_();
-                let new_value: f64 =
-                    (current - self.step).max(self.range.start().as_());
+                let new_value: f64 = (current - self.step).max(self.range.start().as_());
 
                 if let Some(value) = T::from_f64(new_value) {
                     shell.publish((self.on_change)(value));
+                    shell.request_redraw();
                 }
             }
             _ => {}

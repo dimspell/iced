@@ -733,6 +733,7 @@ where
 
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
+        builder.add_action(accesskit::Action::Focus);
         builder.set_has_popup(accesskit::HasPopup::Listbox);
 
         // Track keyboard focus for the accessibility tree

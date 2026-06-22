@@ -55,7 +55,8 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
-        self.as_overlay_mut().accessibility(layout, nodes, id_counter)
+        self.as_overlay_mut()
+            .accessibility(layout, nodes, id_counter)
     }
 }
 

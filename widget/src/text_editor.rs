@@ -642,6 +642,8 @@ where
             builder.add_action(accesskit::Action::ReplaceSelectedText);
         }
 
+        builder.add_action(accesskit::Action::Focus);
+
         if let Some(label) = &self.accessible_label {
             builder.set_label(label.as_str());
         }
@@ -660,21 +662,33 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut widget::Tree,
+        tree: &mut widget::Tree,
         _layout: Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State<Highlighter>>().editor.unfocus();
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::ReplaceSelectedText {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_edit) = &self.on_edit {
-                        shell.publish((on_edit)(Action::Edit(Edit::Paste(
-                            Arc::new(value.to_string()),
-                        ))));
+                        shell.publish((on_edit)(Action::Edit(Edit::Paste(Arc::new(
+                            value.to_string(),
+                        )))));
+                        shell.request_redraw();
                     }
                 }
             }
+        } else if action.action == accesskit::Action::Focus {
+            tree.state.downcast_mut::<State<Highlighter>>().editor.focus();
+            shell.request_redraw();
         }
     }
 }

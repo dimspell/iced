@@ -65,9 +65,13 @@ impl App {
             counter: 0,
             panes,
             people: vec![
-                Person { name: "Alice".into() },
+                Person {
+                    name: "Alice".into(),
+                },
                 Person { name: "Bob".into() },
-                Person { name: "Charlie".into() },
+                Person {
+                    name: "Charlie".into(),
+                },
             ],
             qr_data: qr_code::Data::new("https://iced.rs").ok(),
         }
@@ -98,9 +102,7 @@ impl App {
         .spacing(24)
         .padding(20);
 
-        scrollable(content)
-            .height(Fill)
-            .into()
+        scrollable(content).height(Fill).into()
     }
 
     fn heading_section(&self) -> Element<'_, Message> {
@@ -159,8 +161,7 @@ impl App {
     fn slider_section(&self) -> Element<'_, Message> {
         column![
             text("Sliders").heading(2),
-            slider(0..=100, self.slider, Message::SliderChanged)
-                .accessible_label("Volume"),
+            slider(0..=100, self.slider, Message::SliderChanged).accessible_label("Volume"),
             vertical_slider(0..=100, self.vslider, Message::VSliderChanged)
                 .accessible_label("Brightness"),
         ]
@@ -175,8 +176,7 @@ impl App {
             text_input("Type here...", &self.text_input)
                 .on_input(Message::TextInputChanged)
                 .accessible_label("Search query"),
-            progress_bar(0.0..=100.0, self.slider as f32)
-                .accessible_label("Volume progress"),
+            progress_bar(0.0..=100.0, self.slider as f32).accessible_label("Volume progress"),
         ]
         .spacing(12)
         .into()
@@ -221,18 +221,14 @@ impl App {
                     .center_y(Fill)
                     .into();
 
-            pg::Content::new(body)
-                .accessible_label("Accessible Pane")
+            pg::Content::new(body).accessible_label("Accessible Pane")
         })
         .width(Fill)
         .height(Length::Fixed(200.0));
 
-        column![
-            text("Layout Widgets").heading(2),
-            pane_grid,
-        ]
-        .spacing(12)
-        .into()
+        column![text("Layout Widgets").heading(2), pane_grid,]
+            .spacing(12)
+            .into()
     }
 }
 
@@ -294,15 +290,9 @@ mod tests {
         let qr_node = tree
             .nodes
             .iter()
-            .find(|(_, n)| {
-                n.role() == Role::Image
-                    && n.label() == Some("QR Code for Iced website")
-            })
+            .find(|(_, n)| n.role() == Role::Image && n.label() == Some("QR Code for Iced website"))
             .map(|(_, n)| n);
-        assert!(
-            qr_node.is_some(),
-            "QR Code with custom label should exist"
-        );
+        assert!(qr_node.is_some(), "QR Code with custom label should exist");
         assert_eq!(qr_node.unwrap().value(), Some("https://iced.rs"));
     }
 }

@@ -305,12 +305,10 @@ where
     ) -> Option<accesskit::NodeId> {
         use crate::core::accessibility::accesskit;
 
-        let child_id = self.content.as_widget().accessibility(
-            layout,
-            &tree.children[0],
-            nodes,
-            id_counter,
-        );
+        let child_id =
+            self.content
+                .as_widget()
+                .accessibility(layout, &tree.children[0], nodes, id_counter);
 
         let id = accesskit::NodeId(*id_counter);
         tree.set_accesskit_node_id(id);

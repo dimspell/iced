@@ -13,27 +13,27 @@ use crate::core::{
 };
 
 /// A bunch of [`Rich`] text.
-    pub struct Rich<'a, Link, Message, Theme = crate::Theme, Renderer = crate::Renderer>
-    where
-        Link: Clone + 'static,
-        Theme: Catalog,
-        Renderer: core::text::Renderer,
-    {
-        spans: Box<dyn AsRef<[Span<'a, Link, Renderer::Font>]> + 'a>,
-        size: Option<Pixels>,
-        line_height: LineHeight,
-        width: Length,
-        height: Length,
-        font: Option<Renderer::Font>,
-        align_x: Alignment,
-        align_y: alignment::Vertical,
-        wrapping: Wrapping,
-        ellipsis: Ellipsis,
-        class: Theme::Class<'a>,
-        hovered_link: Option<usize>,
-        on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
-        heading_level: Option<usize>,
-    }
+pub struct Rich<'a, Link, Message, Theme = crate::Theme, Renderer = crate::Renderer>
+where
+    Link: Clone + 'static,
+    Theme: Catalog,
+    Renderer: core::text::Renderer,
+{
+    spans: Box<dyn AsRef<[Span<'a, Link, Renderer::Font>]> + 'a>,
+    size: Option<Pixels>,
+    line_height: LineHeight,
+    width: Length,
+    height: Length,
+    font: Option<Renderer::Font>,
+    align_x: Alignment,
+    align_y: alignment::Vertical,
+    wrapping: Wrapping,
+    ellipsis: Ellipsis,
+    class: Theme::Class<'a>,
+    hovered_link: Option<usize>,
+    on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
+    heading_level: Option<usize>,
+}
 
 impl<'a, Link, Message, Theme, Renderer> Rich<'a, Link, Message, Theme, Renderer>
 where

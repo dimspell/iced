@@ -345,12 +345,8 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        self.list.accessibility_action(
-            self.tree,
-            layout,
-            action,
-            shell,
-        );
+        self.list
+            .accessibility_action(self.tree, layout, action, shell);
     }
 }
 
@@ -630,11 +626,12 @@ where
 
             // Set bounds so screen readers know where each item sits
             let bounds = layout.bounds();
+            let y = bounds.y + option_height * i as f32;
             let option_bounds = accesskit::Rect::new(
                 bounds.x as f64,
-                (bounds.y + option_height * i as f32) as f64,
-                bounds.width as f64,
-                option_height as f64,
+                y as f64,
+                (bounds.x + bounds.width) as f64,
+                (y + option_height) as f64,
             );
             option_node.set_bounds(option_bounds);
 
@@ -667,12 +664,15 @@ where
         if action.action == accesskit::Action::Click {
             let state = tree.state.downcast_ref::<ListState>();
             let option_node_ids = state.option_node_ids.take();
-            if let Some(index) = option_node_ids
+            let index = option_node_ids
                 .iter()
-                .position(|id| *id == action.target_node)
-            {
+                .position(|id| *id == action.target_node);
+            state.option_node_ids.set(option_node_ids);
+
+            if let Some(index) = index {
                 if let Some(option) = self.options.get(index) {
                     shell.publish((self.on_selected)(option.clone()));
+                    shell.request_redraw();
                 }
             }
         }

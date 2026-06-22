@@ -319,9 +319,7 @@ where
         tree_update: crate::core::accessibility::accesskit::TreeUpdate,
     ) {
         if let Some(adapter) = &mut self.accessibility_adapter {
-            eprintln!("[DEBUG update_accessibility_tree] calling update_if_active with {} nodes", tree_update.nodes.len());
             adapter.update_if_active(move || tree_update);
-            eprintln!("[DEBUG update_accessibility_tree] after update_if_active");
         }
     }
 }

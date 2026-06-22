@@ -172,14 +172,12 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
-        self.content
-            .as_widget()
-            .accessibility(
-                layout.children().next().unwrap_or(layout),
-                &tree.children[0],
-                nodes,
-                id_counter,
-            )
+        self.content.as_widget().accessibility(
+            layout.children().next().unwrap_or(layout),
+            &tree.children[0],
+            nodes,
+            id_counter,
+        )
     }
 
     fn mouse_interaction(

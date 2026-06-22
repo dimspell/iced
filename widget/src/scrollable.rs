@@ -572,7 +572,9 @@ where
             .unwrap_or_default();
 
         let scroll_x = state.offset_x.absolute(bounds.width, content_bounds.width) as f64;
-        let scroll_y = state.offset_y.absolute(bounds.height, content_bounds.height) as f64;
+        let scroll_y = state
+            .offset_y
+            .absolute(bounds.height, content_bounds.height) as f64;
 
         builder.set_scroll_x(scroll_x);
         builder.set_scroll_y(scroll_y);
@@ -620,7 +622,9 @@ where
         match action.action {
             accesskit::Action::ScrollDown => {
                 let scroll_amount = 40.0; // pixels per scroll step
-                let new_offset = (state.offset_y.absolute(bounds.height, content_bounds.height)
+                let new_offset = (state
+                    .offset_y
+                    .absolute(bounds.height, content_bounds.height)
                     + scroll_amount)
                     .min(max_scroll_y);
                 state.offset_y = Offset::Absolute(new_offset);
@@ -629,7 +633,9 @@ where
             }
             accesskit::Action::ScrollUp => {
                 let scroll_amount = 40.0;
-                let new_offset = (state.offset_y.absolute(bounds.height, content_bounds.height)
+                let new_offset = (state
+                    .offset_y
+                    .absolute(bounds.height, content_bounds.height)
                     - scroll_amount)
                     .max(0.0);
                 state.offset_y = Offset::Absolute(new_offset);

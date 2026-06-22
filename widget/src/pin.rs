@@ -280,9 +280,12 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        self.content
-            .as_widget_mut()
-            .accessibility_action(tree, layout.children().next().unwrap(), action, shell);
+        self.content.as_widget_mut().accessibility_action(
+            tree,
+            layout.children().next().unwrap(),
+            action,
+            shell,
+        );
     }
 }
 

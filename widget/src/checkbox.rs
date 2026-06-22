@@ -32,6 +32,7 @@
 //! ```
 //! ![Checkbox drawn by `iced_wgpu`](https://github.com/iced-rs/iced/blob/7760618fb112074bc40b148944521f312152012a/docs/images/checkbox.png?raw=true)
 use crate::core::alignment;
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
@@ -304,9 +305,7 @@ where
             |_| layout::Node::new(Size::new(self.size, self.size)),
             |limits| {
                 if let Some(label) = self.label.as_deref() {
-                    let state_container = tree
-                        .state
-                        .downcast_mut::<State<Renderer::Paragraph>>();
+                    let state_container = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
                     let state = &mut state_container.text;
 
                     widget::text::layout(
@@ -336,7 +335,7 @@ where
 
     fn update(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -352,6 +351,24 @@ where
                 if mouse_over && let Some(on_toggle) = &self.on_toggle {
                     shell.publish((on_toggle)(!self.is_checked));
                     shell.capture_event();
+                }
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree
+                    .state
+                    .downcast_ref::<State<Renderer::Paragraph>>()
+                    .is_focused
+                    && self.on_toggle.is_some() =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        if let Some(on_toggle) = &self.on_toggle {
+                            shell.publish((on_toggle)(!self.is_checked));
+                            shell.capture_event();
+                        }
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -422,7 +439,18 @@ where
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
-                    border: style.border,
+                    border: if tree
+                        .state
+                        .downcast_ref::<State<Renderer::Paragraph>>()
+                        .is_focused
+                    {
+                        Border {
+                            width: style.border.width.max(2.0),
+                            ..style.border
+                        }
+                    } else {
+                        style.border
+                    },
                     ..renderer::Quad::default()
                 },
                 style.background,
@@ -521,7 +549,13 @@ where
             builder.add_action(accesskit::Action::Click);
         }
 
-        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused {
+        builder.add_action(accesskit::Action::Focus);
+
+        if tree
+            .state
+            .downcast_ref::<State<Renderer::Paragraph>>()
+            .is_focused
+        {
             tree.set_accesskit_focused(true);
         }
 
@@ -538,15 +572,27 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .is_focused = false;
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::Click {
             if let Some(on_toggle) = &self.on_toggle {
                 shell.publish((on_toggle)(!self.is_checked));
+                shell.request_redraw();
             }
         }
 
         if action.action == accesskit::Action::Focus {
             let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
             state.is_focused = true;
+            shell.request_redraw();
         }
     }
 }

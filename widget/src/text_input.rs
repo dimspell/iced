@@ -387,8 +387,14 @@ where
             builder.add_action(accesskit::Action::ReplaceSelectedText);
         }
 
+        builder.add_action(accesskit::Action::Focus);
+
         // Track keyboard focus for the accessibility tree
-        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+        if tree
+            .state
+            .downcast_ref::<State<Renderer::Paragraph>>()
+            .is_focused()
+        {
             tree.set_accesskit_focused(true);
         }
 
@@ -400,19 +406,35 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility_action(
         &mut self,
-        _tree: &mut crate::core::widget::Tree,
+        tree: &mut crate::core::widget::Tree,
         _layout: crate::core::Layout<'_>,
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .unfocus();
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::ReplaceSelectedText {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_input) = &self.on_input {
                         shell.publish((on_input)(value.to_string()));
+                        shell.request_redraw();
                     }
                 }
             }
+        } else if action.action == accesskit::Action::Focus {
+            tree.state
+                .downcast_mut::<State<Renderer::Paragraph>>()
+                .focus();
+            shell.request_redraw();
         }
     }
 

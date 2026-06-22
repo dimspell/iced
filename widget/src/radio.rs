@@ -58,15 +58,16 @@
 //! ```
 use crate::core::alignment;
 use crate::core::border::{self, Border};
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::text;
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
-use crate::core::widget::operation::{self, Focusable, Operation};
 use crate::core::{
     Background, Color, Element, Event, Layout, Length, Pixels, Rectangle, Shell, Size, Theme,
     Widget,
@@ -320,9 +321,7 @@ where
             self.spacing,
             |_| layout::Node::new(Size::new(self.size, self.size)),
             |limits| {
-                let state_container = tree
-                    .state
-                    .downcast_mut::<State<Renderer::Paragraph>>();
+                let state_container = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
                 let state = &mut state_container.text;
 
                 widget::text::layout(
@@ -349,7 +348,7 @@ where
 
     fn update(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -364,6 +363,21 @@ where
             {
                 shell.publish(self.on_click.clone());
                 shell.capture_event();
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree
+                    .state
+                    .downcast_ref::<State<Renderer::Paragraph>>()
+                    .is_focused =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        shell.publish(self.on_click.clone());
+                        shell.capture_event();
+                    }
+                    _ => {}
+                }
             }
             _ => {}
         }
@@ -446,7 +460,15 @@ where
                     bounds,
                     border: Border {
                         radius: (size / 2.0).into(),
-                        width: style.border_width,
+                        width: if tree
+                            .state
+                            .downcast_ref::<State<Renderer::Paragraph>>()
+                            .is_focused
+                        {
+                            style.border_width.max(2.0)
+                        } else {
+                            style.border_width
+                        },
                         color: style.border_color,
                     },
                     ..renderer::Quad::default()
@@ -515,7 +537,11 @@ where
         builder.add_action(accesskit::Action::Focus);
 
         // Track keyboard focus for the accessibility tree
-        if tree.state.downcast_ref::<State<Renderer::Paragraph>>().is_focused() {
+        if tree
+            .state
+            .downcast_ref::<State<Renderer::Paragraph>>()
+            .is_focused
+        {
             tree.set_accesskit_focused(true);
         }
 
@@ -532,11 +558,23 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .is_focused = false;
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::Click {
             shell.publish(self.on_click.clone());
+            shell.request_redraw();
         } else if action.action == accesskit::Action::Focus {
             let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-            state.focus();
+            state.is_focused = true;
+            shell.request_redraw();
         }
     }
 }

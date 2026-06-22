@@ -351,9 +351,10 @@ where
             .zip(&tree.children)
             .zip(layout.children())
         {
-            if let Some(child_id) = child
-                .as_widget()
-                .accessibility(child_layout, state, nodes, id_counter)
+            if let Some(child_id) =
+                child
+                    .as_widget()
+                    .accessibility(child_layout, state, nodes, id_counter)
             {
                 child_ids.push(child_id);
             }

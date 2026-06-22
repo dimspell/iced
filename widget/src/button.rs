@@ -17,17 +17,16 @@
 //! }
 //! ```
 use crate::core::border::{self, Border};
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::theme::palette;
 use crate::core::touch;
-use crate::core::widget::operation::{self, Operation};
-#[cfg(feature = "accessibility")]
-use crate::core::widget::operation::Focusable;
-use crate::core::widget::tree::{self, Tree};
 use crate::core::widget::Id;
+use crate::core::widget::operation::{self, Operation};
+use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
     Background, Color, Element, Event, Layout, Length, Padding, Rectangle, Shadow, Shell, Size,
@@ -317,6 +316,8 @@ where
             builder.add_action(accesskit::Action::Click);
         }
 
+        builder.add_action(accesskit::Action::Focus);
+
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
             builder.set_labelled_by(vec![child_id]);
@@ -339,13 +340,23 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if tree.accesskit_node_id() != Some(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State>().is_focused = false;
+            }
+
+            return;
+        }
+
         if action.action == accesskit::Action::Click {
             if let Some(on_press) = &self.on_press {
                 shell.publish(on_press.get());
+                shell.request_redraw();
             }
         } else if action.action == accesskit::Action::Focus {
             let state = tree.state.downcast_mut::<State>();
-            state.focus();
+            state.is_focused = true;
+            shell.request_redraw();
         }
     }
 
@@ -411,6 +422,20 @@ where
 
                 state.is_pressed = false;
             }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree.state.downcast_ref::<State>().is_focused && self.on_press.is_some() =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        if let Some(on_press) = &self.on_press {
+                            shell.publish(on_press.get());
+                            shell.capture_event();
+                        }
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
 
@@ -449,11 +474,21 @@ where
         let content_layout = layout.children().next().unwrap();
         let style = theme.style(&self.class, self.status.unwrap_or(Status::Disabled));
 
-        if style.background.is_some() || style.border.width > 0.0 || style.shadow.color.a > 0.0 {
+        let is_focused = tree.state.downcast_ref::<State>().is_focused;
+        let border = if is_focused {
+            Border {
+                width: style.border.width.max(2.0),
+                ..style.border
+            }
+        } else {
+            style.border
+        };
+
+        if style.background.is_some() || border.width > 0.0 || style.shadow.color.a > 0.0 {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
-                    border: style.border,
+                    border,
                     shadow: style.shadow,
                     snap: style.snap,
                 },

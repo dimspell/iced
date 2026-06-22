@@ -1,19 +1,16 @@
 //! Integration tests for accessibility tree building.
-use iced_test::simulator;
-use iced_test::core::Theme;
+use accesskit::{Action, ActionRequest, Role, TreeId};
+use iced_test::core::Point;
+use iced_test::core::{Event, Theme, keyboard};
 use iced_test::renderer::Renderer;
+use iced_test::simulator;
 use iced_widget::{
-    button, checkbox, column, container, pick_list, progress_bar, radio, row, scrollable,
-    slider, text, text_input, toggler, tooltip, vertical_slider,
-};
-use accesskit::Role;
-use iced_test::core::Point; // for menu overlay positioning tests
+    button, checkbox, column, container, pick_list, progress_bar, radio, row, scrollable, slider,
+    text, text_input, toggler, tooltip, vertical_slider,
+}; // for menu overlay positioning tests
 
 /// Find a node in the tree with the given role.
-fn find_node<'a>(
-    tree: &'a accesskit::TreeUpdate,
-    role: Role,
-) -> Option<&'a accesskit::Node> {
+fn find_node<'a>(tree: &'a accesskit::TreeUpdate, role: Role) -> Option<&'a accesskit::Node> {
     tree.nodes
         .iter()
         .find(|(_, n)| n.role() == role)
@@ -27,7 +24,10 @@ fn button_role() {
     let mut ui = simulator::<(), Theme, Renderer>(button("Click"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Button).expect("Button node");
-    assert!(node.is_disabled(), "Button without on_press should be disabled");
+    assert!(
+        node.is_disabled(),
+        "Button without on_press should be disabled"
+    );
     assert!(
         !node.supports_action(accesskit::Action::Click),
         "Disabled button should not advertise Click action"
@@ -39,7 +39,10 @@ fn button_with_on_press() {
     let mut ui = simulator::<(), Theme, Renderer>(button("Activate").on_press(()));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Button).expect("Button node");
-    assert!(!node.is_disabled(), "Button with on_press should be enabled");
+    assert!(
+        !node.is_disabled(),
+        "Button with on_press should be enabled"
+    );
     assert!(
         node.supports_action(accesskit::Action::Click),
         "Enabled button should advertise Click action"
@@ -76,9 +79,8 @@ fn radio_role() {
 
 #[test]
 fn slider_numeric_range() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        slider(0..=100, 50, |_| {}).accessible_label("Volume"),
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(slider(0..=100, 50, |_| {}).accessible_label("Volume"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Slider).expect("Slider node");
     assert_eq!(node.min_numeric_value(), Some(0.0));
@@ -102,9 +104,7 @@ fn vertical_slider_numeric_range() {
 
 #[test]
 fn vertical_slider_actions() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        vertical_slider(0..=100, 50, |_| {}),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(vertical_slider(0..=100, 50, |_| {}));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Slider).expect("Slider node");
     assert!(node.supports_action(accesskit::Action::Increment));
@@ -113,9 +113,7 @@ fn vertical_slider_actions() {
 
 #[test]
 fn text_input_value_and_label() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        text_input("", "Hello").accessible_label("Name"),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(text_input("", "Hello").accessible_label("Name"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::TextInput).expect("TextInput node");
     assert_eq!(node.value(), Some("Hello"));
@@ -126,9 +124,8 @@ fn text_input_value_and_label() {
 fn text_editor_label() {
     use iced_widget::text_editor;
     let content = text_editor::Content::new();
-    let mut ui = simulator::<(), Theme, Renderer>(
-        text_editor(&content).accessible_label("Description"),
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Description"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
     assert_eq!(node.label(), Some("Description"));
@@ -138,12 +135,13 @@ fn text_editor_label() {
 fn text_editor_disabled_when_no_on_edit() {
     use iced_widget::text_editor;
     let content = text_editor::Content::new();
-    let mut ui = simulator::<(), Theme, Renderer>(
-        text_editor(&content).accessible_label("Bio"),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Bio"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
-    assert!(node.is_disabled(), "TextEditor without on_edit should be disabled");
+    assert!(
+        node.is_disabled(),
+        "TextEditor without on_edit should be disabled"
+    );
     assert!(
         !node.supports_action(accesskit::Action::ReplaceSelectedText),
         "Disabled TextEditor should not advertise ReplaceSelectedText"
@@ -161,7 +159,10 @@ fn text_editor_with_on_edit_has_action() {
     );
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
-    assert!(!node.is_disabled(), "TextEditor with on_edit should be enabled");
+    assert!(
+        !node.is_disabled(),
+        "TextEditor with on_edit should be enabled"
+    );
     assert!(
         node.supports_action(accesskit::Action::ReplaceSelectedText),
         "Enabled TextEditor should advertise ReplaceSelectedText"
@@ -214,44 +215,39 @@ fn empty_text_no_node() {
 fn space_no_node() {
     let mut ui = simulator::<(), Theme, Renderer>(iced_widget::space::Space::new());
     let tree = ui.accessibility_tree();
-    assert!(
-        tree.nodes.is_empty(),
-        "Space should not produce any nodes"
-    );
+    assert!(tree.nodes.is_empty(), "Space should not produce any nodes");
 }
 
 // === COMPOSITIONS ===
 
 #[test]
 fn column_contains_children() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        column![button("A").on_press(()), button("B").on_press(())],
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(column![
+        button("A").on_press(()),
+        button("B").on_press(())
+    ]);
     let tree = ui.accessibility_tree();
     // Should have: Group (column) + Button A + Label "A" + Button B + Label "B" = 5 nodes
     assert_eq!(tree.nodes.len(), 5, "Column + 2 buttons = 5 nodes");
-    assert!(find_node(&tree, Role::Group).is_some());
+    assert!(find_node(&tree, Role::GenericContainer).is_some());
     assert!(find_node(&tree, Role::Button).is_some());
 }
 
 #[test]
 fn row_contains_children() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        row![button("A").on_press(()), button("B").on_press(())],
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(row![button("A").on_press(()), button("B").on_press(())]);
     let tree = ui.accessibility_tree();
     assert_eq!(tree.nodes.len(), 5, "Row + 2 buttons = 5 nodes");
 }
 
 #[test]
 fn container_wraps_child() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        container(text("Content")).width(100).height(50),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(container(text("Content")).width(100).height(50));
     let tree = ui.accessibility_tree();
-    // Should have: Group (container) + Label (text) = 2 nodes
+    // Should have: GenericContainer (container) + Label (text) = 2 nodes
     assert_eq!(tree.nodes.len(), 2);
-    assert!(find_node(&tree, Role::Group).is_some());
+    assert!(find_node(&tree, Role::GenericContainer).is_some());
     assert!(find_node(&tree, Role::Label).is_some());
 }
 
@@ -274,15 +270,133 @@ fn tree_has_root_and_focus() {
 #[test]
 fn click_action_dispatches_button_message() {
     let mut ui = simulator::<i32, Theme, Renderer>(button("Press me").on_press(42));
-    let request = accesskit::ActionRequest {
-        action: accesskit::Action::Click,
-        target_tree: accesskit::TreeId::ROOT,
-        target_node: accesskit::NodeId(0),
+    let tree = ui.accessibility_tree();
+    let (button_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Button)
+        .expect("Button node");
+
+    let request = ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: *button_id,
         data: None,
     };
     ui.accessibility_action(&request);
     let messages: Vec<i32> = ui.into_messages().collect();
-    assert_eq!(messages, vec![42], "Button click should produce the on_press message");
+    assert_eq!(
+        messages,
+        vec![42],
+        "Button click should produce the on_press message"
+    );
+}
+
+#[test]
+fn click_action_targets_only_requested_button() {
+    let mut ui =
+        simulator::<i32, Theme, Renderer>(row![button("A").on_press(1), button("B").on_press(2)]);
+    let tree = ui.accessibility_tree();
+    let (second_button_id, _) = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Button)
+        .nth(1)
+        .expect("Second button node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: *second_button_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![2]);
+}
+
+#[test]
+fn tab_focus_updates_accessibility_focus() {
+    let mut ui =
+        simulator::<(), Theme, Renderer>(row![button("A").on_press(()), button("B").on_press(())]);
+
+    let before = ui.accessibility_tree();
+    let first_button = before
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Button)
+        .map(|(id, _)| *id)
+        .expect("First button node");
+
+    let status = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    assert_eq!(status, iced_test::core::event::Status::Captured);
+
+    let after = ui.accessibility_tree();
+    assert_eq!(after.focus, first_button);
+}
+
+#[test]
+fn repeated_tab_advances_accessibility_focus() {
+    let mut ui =
+        simulator::<(), Theme, Renderer>(row![button("A").on_press(()), button("B").on_press(())]);
+
+    let tree = ui.accessibility_tree();
+    let second_button = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Button)
+        .nth(1)
+        .map(|(id, _)| *id)
+        .expect("Second button node");
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+
+    let after = ui.accessibility_tree();
+    assert_eq!(after.focus, second_button);
+}
+
+#[test]
+fn shift_tab_moves_focus_backward() {
+    let mut ui =
+        simulator::<(), Theme, Renderer>(row![button("A").on_press(()), button("B").on_press(())]);
+
+    let tree = ui.accessibility_tree();
+    let second_button = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Button)
+        .nth(1)
+        .map(|(id, _)| *id)
+        .expect("Second button node");
+
+    let tab = keyboard::Key::Named(keyboard::key::Named::Tab);
+    let _ = ui.simulate([Event::Keyboard(keyboard::Event::KeyPressed {
+        key: tab.clone(),
+        modified_key: tab,
+        physical_key: keyboard::key::Physical::Unidentified(
+            keyboard::key::NativeCode::Unidentified,
+        ),
+        location: keyboard::Location::Standard,
+        modifiers: keyboard::Modifiers::SHIFT,
+        repeat: false,
+        text: None,
+    })]);
+
+    let after = ui.accessibility_tree();
+    assert_eq!(after.focus, second_button);
+}
+
+#[test]
+fn focused_button_activates_with_enter_and_space() {
+    let mut ui = simulator::<i32, Theme, Renderer>(button("Press").on_press(7));
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Space));
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![7, 7]);
 }
 
 #[test]
@@ -290,7 +404,11 @@ fn increment_action_dispatches_slider_message() {
     let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |v| v));
     // First get the tree to find the slider's node ID
     let tree = ui.accessibility_tree();
-    let (slider_id, _) = tree.nodes.iter().find(|(_, n)| n.role() == Role::Slider).expect("Slider node");
+    let (slider_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Slider)
+        .expect("Slider node");
 
     let request = accesskit::ActionRequest {
         action: accesskit::Action::Increment,
@@ -300,14 +418,22 @@ fn increment_action_dispatches_slider_message() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<i32> = ui.into_messages().collect();
-    assert_eq!(messages, vec![51], "Slider increment with step=1 should produce 51");
+    assert_eq!(
+        messages,
+        vec![51],
+        "Slider increment with step=1 should produce 51"
+    );
 }
 
 #[test]
 fn decrement_action_dispatches_slider_message() {
     let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |v| v));
     let tree = ui.accessibility_tree();
-    let (slider_id, _) = tree.nodes.iter().find(|(_, n)| n.role() == Role::Slider).expect("Slider node");
+    let (slider_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Slider)
+        .expect("Slider node");
 
     let request = accesskit::ActionRequest {
         action: accesskit::Action::Decrement,
@@ -317,7 +443,11 @@ fn decrement_action_dispatches_slider_message() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<i32> = ui.into_messages().collect();
-    assert_eq!(messages, vec![49], "Slider decrement with step=1 should produce 49");
+    assert_eq!(
+        messages,
+        vec![49],
+        "Slider decrement with step=1 should produce 49"
+    );
 }
 
 // === MENU / DROPDOWN ACCESSIBILITY ===
@@ -326,8 +456,10 @@ fn decrement_action_dispatches_slider_message() {
 fn picklist_menu_items_visible_when_open() {
     let options = vec!["Option A", "Option B", "Option C"];
     let mut ui = simulator::<(), Theme, Renderer>(
-        pick_list(Some("Option A"), options.as_slice(), |s: &&str| s.to_string())
-            .on_select(|_| ()),
+        pick_list(Some("Option A"), options.as_slice(), |s: &&str| {
+            s.to_string()
+        })
+        .on_select(|_| ()),
     );
 
     // Click to open the dropdown — PickList should start at origin
@@ -342,7 +474,11 @@ fn picklist_menu_items_visible_when_open() {
         .map(|(_, n)| n)
         .collect();
 
-    assert_eq!(items.len(), 3, "Should have 3 MenuItem nodes when dropdown is open");
+    assert_eq!(
+        items.len(),
+        3,
+        "Should have 3 MenuItem nodes when dropdown is open"
+    );
     assert_eq!(items[0].label(), Some("Option A"));
     assert!(items[0].supports_action(accesskit::Action::Click));
 }
@@ -351,12 +487,8 @@ fn picklist_menu_items_visible_when_open() {
 fn picklist_menu_item_click_dispatches_selection() {
     let options = vec!["Alpha", "Beta", "Gamma"];
     let mut ui = simulator::<String, Theme, Renderer>(
-        pick_list(
-            Some("Alpha"),
-            options.as_slice(),
-            |s: &&str| s.to_string(),
-        )
-        .on_select(|s| s.to_string()),
+        pick_list(Some("Alpha"), options.as_slice(), |s: &&str| s.to_string())
+            .on_select(|s| s.to_string()),
     );
 
     // Open the dropdown
@@ -367,10 +499,7 @@ fn picklist_menu_item_click_dispatches_selection() {
     let (target_id, _) = tree
         .nodes
         .iter()
-        .find(|(_, n)| {
-            n.role() == Role::MenuItem
-                && n.label() == Some("Beta")
-        })
+        .find(|(_, n)| n.role() == Role::MenuItem && n.label() == Some("Beta"))
         .expect("Second menu item 'Beta' should exist");
 
     let request = accesskit::ActionRequest {
@@ -381,18 +510,26 @@ fn picklist_menu_item_click_dispatches_selection() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<String> = ui.into_messages().collect();
-    assert_eq!(messages, vec!["Beta"], "Clicking menu item should produce its selected message");
+    assert_eq!(
+        messages,
+        vec!["Beta"],
+        "Clicking menu item should produce its selected message"
+    );
 }
 
 #[test]
 fn pick_list_disabled_when_no_on_select() {
     let options = vec!["A", "B"];
-    let mut ui = simulator::<(), Theme, Renderer>(
-        pick_list(Some("A"), options.as_slice(), |s: &&str| s.to_string()),
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(pick_list(Some("A"), options.as_slice(), |s: &&str| {
+            s.to_string()
+        }));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::ComboBox).expect("PickList ComboBox node");
-    assert!(node.is_disabled(), "PickList without on_select should be disabled");
+    assert!(
+        node.is_disabled(),
+        "PickList without on_select should be disabled"
+    );
 }
 
 // === ACCESSIBLE LABEL ON GRAPHIC WIDGETS ===
@@ -449,11 +586,18 @@ fn qr_code_custom_label_and_value() {
 
 #[test]
 fn tooltip_has_popup() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        tooltip(text("Hover me"), text("Tooltip text"), tooltip::Position::Top),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(tooltip(
+        text("Hover me"),
+        text("Tooltip text"),
+        tooltip::Position::Top,
+    ));
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::Group).expect("Tooltip Group node");
+    let node = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.has_popup() == Some(accesskit::HasPopup::Menu))
+        .map(|(_, n)| n)
+        .expect("Tooltip popup node");
     // Should signal to AT that a popup (tooltip) exists
     assert_eq!(node.has_popup(), Some(accesskit::HasPopup::Menu));
 }
@@ -465,9 +609,8 @@ fn combo_box_menu_items_visible_when_focused() {
     use iced_widget::combo_box;
 
     let state = combo_box::State::new(vec!["A", "B", "C"]);
-    let mut ui = simulator::<(), Theme, Renderer>(
-        combo_box(&state, "Pick...", None::<& &str>, |_: &str| ()),
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(combo_box(&state, "Pick...", None::<&&str>, |_: &str| ()));
 
     // Click to focus and open the dropdown
     ui.point_at(Point::new(10.0, 10.0));
@@ -480,7 +623,11 @@ fn combo_box_menu_items_visible_when_focused() {
         .filter(|(_, n)| n.role() == Role::MenuItem)
         .map(|(_, n)| n)
         .collect();
-    assert_eq!(items.len(), 3, "Should have 3 MenuItem nodes when dropdown is open");
+    assert_eq!(
+        items.len(),
+        3,
+        "Should have 3 MenuItem nodes when dropdown is open"
+    );
     assert_eq!(items[0].label(), Some("A"));
     assert!(items[0].supports_action(accesskit::Action::Click));
 }
@@ -490,9 +637,12 @@ fn combo_box_menu_item_click_dispatches_selection() {
     use iced_widget::combo_box;
 
     let state = combo_box::State::new(vec!["Alpha", "Beta", "Gamma"]);
-    let mut ui = simulator::<&str, Theme, Renderer>(
-        combo_box(&state, "Pick...", None::<& &str>, |s: &str| s),
-    );
+    let mut ui = simulator::<&str, Theme, Renderer>(combo_box(
+        &state,
+        "Pick...",
+        None::<&&str>,
+        |s: &str| s,
+    ));
 
     // Open the dropdown
     ui.point_at(Point::new(10.0, 10.0));
@@ -502,10 +652,7 @@ fn combo_box_menu_item_click_dispatches_selection() {
     let (target_id, _) = tree
         .nodes
         .iter()
-        .find(|(_, n)| {
-            n.role() == Role::MenuItem
-                && n.label() == Some("Beta")
-        })
+        .find(|(_, n)| n.role() == Role::MenuItem && n.label() == Some("Beta"))
         .expect("Second menu item 'Beta' should exist");
 
     let request = accesskit::ActionRequest {
@@ -516,16 +663,19 @@ fn combo_box_menu_item_click_dispatches_selection() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<&str> = ui.into_messages().collect();
-    assert_eq!(messages, vec!["Beta"], "Clicking ComboBox item should produce its selected message");
+    assert_eq!(
+        messages,
+        vec!["Beta"],
+        "Clicking ComboBox item should produce its selected message"
+    );
 }
 
 #[test]
 fn combo_box_has_popup() {
     use iced_widget::combo_box;
     let state = combo_box::State::new(vec!["A", "B", "C"]);
-    let mut ui = simulator::<(), Theme, Renderer>(
-        combo_box(&state, "Pick...", None::<& &str>, |_: &str| ()),
-    );
+    let mut ui =
+        simulator::<(), Theme, Renderer>(combo_box(&state, "Pick...", None::<&&str>, |_: &str| ()));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::ComboBox).expect("ComboBox node");
     assert_eq!(node.has_popup(), Some(accesskit::HasPopup::Listbox));
@@ -557,7 +707,11 @@ fn table_roles_and_indices() {
         .filter(|(_, n)| n.role() == Role::Row)
         .map(|(_, n)| n)
         .collect();
-    assert_eq!(row_nodes.len(), 3, "Should have 3 Row nodes (1 header + 2 data)");
+    assert_eq!(
+        row_nodes.len(),
+        3,
+        "Should have 3 Row nodes (1 header + 2 data)"
+    );
 
     let cells: Vec<&accesskit::Node> = tree
         .nodes
@@ -580,11 +734,12 @@ fn table_roles_and_indices() {
 
 #[test]
 fn checkbox_click_dispatches_toggle() {
-    let mut ui = simulator::<bool, Theme, Renderer>(
-        checkbox(false).label("Accept").on_toggle(|v| v),
-    );
+    let mut ui =
+        simulator::<bool, Theme, Renderer>(checkbox(false).label("Accept").on_toggle(|v| v));
     let tree = ui.accessibility_tree();
-    let (box_id, _) = tree.nodes.iter()
+    let (box_id, _) = tree
+        .nodes
+        .iter()
         .find(|(_, n)| n.role() == Role::CheckBox)
         .expect("CheckBox node");
 
@@ -596,16 +751,20 @@ fn checkbox_click_dispatches_toggle() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<bool> = ui.into_messages().collect();
-    assert_eq!(messages, vec![true], "Checkbox click should produce the toggle message (true)");
+    assert_eq!(
+        messages,
+        vec![true],
+        "Checkbox click should produce the toggle message (true)"
+    );
 }
 
 #[test]
 fn toggler_click_dispatches_toggle() {
-    let mut ui = simulator::<bool, Theme, Renderer>(
-        toggler(false).label("WiFi").on_toggle(|v| v),
-    );
+    let mut ui = simulator::<bool, Theme, Renderer>(toggler(false).label("WiFi").on_toggle(|v| v));
     let tree = ui.accessibility_tree();
-    let (tog_id, _) = tree.nodes.iter()
+    let (tog_id, _) = tree
+        .nodes
+        .iter()
         .find(|(_, n)| n.role() == Role::Switch)
         .expect("Switch node");
 
@@ -617,16 +776,20 @@ fn toggler_click_dispatches_toggle() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<bool> = ui.into_messages().collect();
-    assert_eq!(messages, vec![true], "Toggler click should produce the toggle message (true)");
+    assert_eq!(
+        messages,
+        vec![true],
+        "Toggler click should produce the toggle message (true)"
+    );
 }
 
 #[test]
 fn radio_click_dispatches_selection() {
-    let mut ui = simulator::<i32, Theme, Renderer>(
-        radio("Option A", 1, Some(2), |v| v),
-    );
+    let mut ui = simulator::<i32, Theme, Renderer>(radio("Option A", 1, Some(2), |v| v));
     let tree = ui.accessibility_tree();
-    let (radio_id, _) = tree.nodes.iter()
+    let (radio_id, _) = tree
+        .nodes
+        .iter()
         .find(|(_, n)| n.role() == Role::RadioButton)
         .expect("RadioButton node");
 
@@ -638,16 +801,18 @@ fn radio_click_dispatches_selection() {
     };
     ui.accessibility_action(&request);
     let messages: Vec<i32> = ui.into_messages().collect();
-    assert_eq!(messages, vec![1], "Radio click should produce the selected value (1)");
+    assert_eq!(
+        messages,
+        vec![1],
+        "Radio click should produce the selected value (1)"
+    );
 }
 
 // === FOCUS TRACKING ===
 
 #[test]
 fn focus_tracking_focus_exists() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        text_input("", "Hello"),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(text_input("", "Hello"));
 
     let tree = ui.accessibility_tree();
     // Verify focus always points to an existing node (even if it's the root)
@@ -659,9 +824,7 @@ fn focus_tracking_focus_exists() {
 
 #[test]
 fn focus_tracking_text_input_sets_focus_flag() {
-    let mut ui = simulator::<(), Theme, Renderer>(
-        text_input("", "Hello"),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(text_input("", "Hello"));
 
     // text_input doesn't handle Focus action directly,
     // but it does set set_accesskit_focused(true) when its internal state is focused.
@@ -679,17 +842,15 @@ fn scrollable_with_overflow_shows_actions() {
 
     // Force content height far larger than scrollable viewport
     let mut ui = simulator::<(), Theme, Renderer>(
-        scrollable(
-            column![text("Content that scrolls"),]
-                .height(Length::Fixed(1000.0)),
-        )
-        .height(Length::Fixed(50.0)),
+        scrollable(column![text("Content that scrolls"),].height(Length::Fixed(1000.0)))
+            .height(Length::Fixed(50.0)),
     );
 
     let tree = ui.accessibility_tree();
     // Find the scrollable Group node (not the root) by filtering for one
     // with scroll actions or non-zero scroll_y_max
-    let node = tree.nodes
+    let node = tree
+        .nodes
         .iter()
         .find_map(|(_, n)| {
             if n.role() == Role::Group && n.supports_action(accesskit::Action::ScrollDown) {
@@ -709,9 +870,7 @@ fn scrollable_with_overflow_shows_actions() {
 #[test]
 fn scrollable_without_overflow_no_scroll_actions() {
     // Single line of text fills the scrollable without overflow
-    let mut ui = simulator::<(), Theme, Renderer>(
-        scrollable(text("Short content")),
-    );
+    let mut ui = simulator::<(), Theme, Renderer>(scrollable(text("Short content")));
 
     let tree = ui.accessibility_tree();
     if let Some(node) = find_node(&tree, Role::Group) {
