@@ -284,9 +284,9 @@ mod tests {
         let table_node = tree
             .nodes
             .iter()
-            .find(|(_, n)| n.role() == Role::Table)
+            .find(|(_, n)| n.role() == Role::Grid)
             .map(|(_, n)| n);
-        assert!(table_node.is_some(), "Table node should exist");
+        assert!(table_node.is_some(), "Grid table node should exist");
         // 1 header + 3 data rows
         assert_eq!(table_node.unwrap().row_count(), Some(4));
     }

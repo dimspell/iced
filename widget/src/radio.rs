@@ -533,6 +533,7 @@ where
             let toggled: accesskit::Toggled = true.into();
             builder.set_toggled(toggled);
         }
+        builder.set_selected(self.is_selected);
 
         builder.add_action(accesskit::Action::Click);
         builder.add_action(accesskit::Action::Focus);
@@ -559,7 +560,7 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        if tree.accesskit_node_id() != Some(action.target_node) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
                 tree.state
                     .downcast_mut::<State<Renderer::Paragraph>>()

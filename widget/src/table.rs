@@ -615,6 +615,7 @@ where
 
         // Get child node IDs, grouped by rows
         let mut row_cell_ids: Vec<Vec<accesskit::NodeId>> = Vec::new();
+        let mut row_bounds: Vec<Option<crate::core::Rectangle>> = Vec::new();
 
         for (i, (cell, child_tree)) in self.cells.iter().zip(tree.children.iter()).enumerate() {
             let col = i % columns;
@@ -622,6 +623,7 @@ where
 
             if col == 0 {
                 row_cell_ids.push(Vec::new());
+                row_bounds.push(None);
             }
 
             let cell_layout = layout.children().nth(i);
@@ -641,13 +643,34 @@ where
                         Role::Cell
                     });
                     wrapper.push_child(cell_id);
-                    wrapper.set_bounds(crate::core::accessibility::rect(cell_layout.bounds()));
+                    let cell_bounds = nodes
+                        .iter()
+                        .find(|(id, _)| *id == cell_id)
+                        .and_then(|(_, child)| child.bounds())
+                        .map(crate::core::accessibility::from_rect)
+                        .unwrap_or_else(|| cell_layout.bounds());
+                    let cell_bounds = crate::core::accessibility::non_empty(cell_bounds);
+
+                    if let Some((_, child)) = nodes.iter().find(|(id, _)| *id == cell_id) {
+                        if let Some(label) = child.label().or_else(|| child.value()) {
+                            wrapper.set_label(label);
+                        }
+                    }
+                    wrapper.set_bounds(crate::core::accessibility::rect(cell_bounds));
                     wrapper.set_row_index(row);
                     wrapper.set_column_index(col);
+                    wrapper.set_row_span(1);
+                    wrapper.set_column_span(1);
                     nodes.push((wrapper_id, wrapper));
 
                     if let Some(last_row) = row_cell_ids.last_mut() {
                         last_row.push(wrapper_id);
+                    }
+
+                    if let Some(bounds) = row_bounds.get_mut(row) {
+                        *bounds = Some(bounds.map_or(cell_bounds, |row_bounds| {
+                            crate::core::accessibility::union(row_bounds, cell_bounds)
+                        }));
                     }
                 }
             }
@@ -655,21 +678,18 @@ where
 
         // Create Row wrapper nodes for each row
         let mut row_ids: Vec<accesskit::NodeId> = Vec::new();
-        let row_height = if rows > 0 {
-            layout.bounds().height / rows as f32
-        } else {
-            0.0
-        };
 
         for (row, row_cells) in row_cell_ids.iter().enumerate() {
             let row_id = accesskit::NodeId(*id_counter);
             *id_counter += 1;
 
-            let mut row_builder = accesskit::Node::new(Role::Row);
-            let mut bounds = layout.bounds();
-            bounds.y += row_height * row as f32;
-            bounds.height = row_height;
-            row_builder.set_bounds(crate::core::accessibility::rect(bounds));
+            let mut row_builder = accesskit::Node::new(Role::TreeItem);
+            if let Some(Some(bounds)) = row_bounds.get(row) {
+                row_builder.set_bounds(crate::core::accessibility::rect(*bounds));
+            }
+            row_builder.set_row_index(row);
+            row_builder.set_column_index(0);
+            row_builder.set_column_span(columns);
 
             for cell_id in row_cells {
                 row_builder.push_child(*cell_id);
@@ -682,7 +702,7 @@ where
         let table_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
 
-        let mut table_builder = accesskit::Node::new(Role::Table);
+        let mut table_builder = accesskit::Node::new(Role::Grid);
         table_builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
         if let Some(label) = &self.accessible_label {
             table_builder.set_label(label.as_str());

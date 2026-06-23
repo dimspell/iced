@@ -785,7 +785,7 @@ where
     ) {
         use crate::core::accessibility::accesskit;
 
-        if tree.accesskit_node_id() != Some(action.target_node) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
                 tree.state
                     .downcast_mut::<State<Renderer::Paragraph>>()

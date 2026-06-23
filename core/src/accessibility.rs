@@ -27,3 +27,27 @@ pub fn from_rect(rect: accesskit::Rect) -> Rectangle {
         height: (rect.y1 - rect.y0) as f32,
     }
 }
+
+/// Returns the smallest rectangle containing both rectangles.
+pub fn union(a: Rectangle, b: Rectangle) -> Rectangle {
+    let x0 = a.x.min(b.x);
+    let y0 = a.y.min(b.y);
+    let x1 = (a.x + a.width).max(b.x + b.width);
+    let y1 = (a.y + a.height).max(b.y + b.height);
+
+    Rectangle {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    }
+}
+
+/// Ensures a rectangle has a non-empty size.
+pub fn non_empty(rectangle: Rectangle) -> Rectangle {
+    Rectangle {
+        width: rectangle.width.max(1.0),
+        height: rectangle.height.max(1.0),
+        ..rectangle
+    }
+}

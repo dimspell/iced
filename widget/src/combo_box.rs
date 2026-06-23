@@ -735,6 +735,9 @@ where
         builder.add_action(accesskit::Action::Expand);
         builder.add_action(accesskit::Action::Collapse);
         builder.add_action(accesskit::Action::Focus);
+        builder.add_child_action(accesskit::Action::Click);
+        builder.add_child_action(accesskit::Action::Expand);
+        builder.add_child_action(accesskit::Action::Focus);
         builder.set_has_popup(accesskit::HasPopup::Listbox);
 
         // Track keyboard focus for the accessibility tree
@@ -759,6 +762,14 @@ where
         use crate::core::accessibility::accesskit;
 
         let state = tree.state.downcast_mut::<Internal<T, Renderer>>();
+
+        if !tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                state.editor.input.unfocus();
+            }
+
+            return;
+        }
 
         match action.action {
             accesskit::Action::Click | accesskit::Action::Expand => {

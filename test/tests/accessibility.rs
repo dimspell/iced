@@ -120,6 +120,8 @@ fn radio_role() {
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::RadioButton).expect("RadioButton node");
     assert_eq!(node.label(), Some("Option A"));
+    assert_eq!(node.is_selected(), Some(true));
+    assert_eq!(node.toggled(), Some(accesskit::Toggled::True));
     assert!(
         node.supports_action(accesskit::Action::Click),
         "Radio should advertise Click action"
@@ -342,6 +344,32 @@ fn click_action_dispatches_button_message() {
 }
 
 #[test]
+fn click_action_on_button_label_dispatches_button_message() {
+    let mut ui = simulator::<i32, Theme, Renderer>(button("Press me").on_press(42));
+    let tree = ui.accessibility_tree();
+    let (_, button_node) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Button)
+        .expect("Button node");
+    let label_id = button_node
+        .children()
+        .first()
+        .copied()
+        .expect("Button label child");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: label_id,
+        data: None,
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![42]);
+}
+
+#[test]
 fn click_action_targets_only_requested_button() {
     let mut ui =
         simulator::<i32, Theme, Renderer>(row![button("A").on_press(1), button("B").on_press(2)]);
@@ -405,6 +433,32 @@ fn focus_action_updates_tree_focus_for_controls() {
         let tree = ui.accessibility_tree();
         assert_eq!(tree.focus, *target_id, "{role:?} should receive focus");
     }
+}
+
+#[test]
+fn focus_action_on_button_label_focuses_button() {
+    let mut ui = simulator::<(), Theme, Renderer>(button("Press").on_press(()));
+    let tree = ui.accessibility_tree();
+    let (button_id, button_node) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Button)
+        .expect("Button node");
+    let label_id = button_node
+        .children()
+        .first()
+        .copied()
+        .expect("Button label child");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: label_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    assert_eq!(tree.focus, *button_id);
 }
 
 #[test]
@@ -872,14 +926,16 @@ fn table_roles_and_indices() {
 
     let columns = [table::column(text("Name"), |s: String| text(s))];
     let rows = vec!["Alice".to_string(), "Bob".to_string()];
-    let mut ui = simulator::<(), Theme, Renderer>(table::table(columns, rows));
+    let mut ui = simulator::<(), Theme, Renderer>(
+        table::table(columns, rows).width(iced_test::core::Length::Fixed(200.0)),
+    );
 
     let tree = ui.accessibility_tree();
     assert!(
-        find_node(&tree, Role::Table).is_some(),
-        "Table node should exist"
+        find_node(&tree, Role::Grid).is_some(),
+        "Grid node should exist"
     );
-    let table_node = find_node(&tree, Role::Table).unwrap();
+    let table_node = find_node(&tree, Role::Grid).unwrap();
     // row_count includes the header row + data rows
     assert_eq!(table_node.row_count(), Some(3));
     assert_eq!(table_node.column_count(), Some(1));
@@ -887,14 +943,18 @@ fn table_roles_and_indices() {
     let row_nodes: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
-        .filter(|(_, n)| n.role() == Role::Row)
+        .filter(|(_, n)| n.role() == Role::TreeItem)
         .map(|(_, n)| n)
         .collect();
     assert_eq!(
         row_nodes.len(),
         3,
-        "Should have 3 Row nodes (1 header + 2 data)"
+        "Should have 3 TreeItem row nodes (1 header + 2 data)"
     );
+    assert!(row_nodes.iter().all(|node| has_non_empty_bounds(node)));
+    assert_eq!(row_nodes[0].row_index(), Some(0));
+    assert_eq!(row_nodes[1].row_index(), Some(1));
+    assert_eq!(row_nodes[2].row_index(), Some(2));
 
     let cells: Vec<&accesskit::Node> = tree
         .nodes
@@ -911,6 +971,12 @@ fn table_roles_and_indices() {
         .map(|(_, n)| n)
         .collect();
     assert_eq!(headers.len(), 1, "Should have 1 ColumnHeader node");
+    assert_eq!(headers[0].label(), Some("Name"));
+    assert_eq!(headers[0].row_index(), Some(0));
+    assert_eq!(headers[0].column_index(), Some(0));
+    assert_eq!(cells[0].label(), Some("Alice"));
+    assert_eq!(cells[0].row_index(), Some(1));
+    assert_eq!(cells[0].column_index(), Some(0));
 }
 
 // === ACTION DISPATCH FOR CHECKBOX / TOGGLER / RADIO ===

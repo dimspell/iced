@@ -315,9 +315,11 @@ where
             builder.set_disabled();
         } else {
             builder.add_action(accesskit::Action::Click);
+            builder.add_child_action(accesskit::Action::Click);
         }
 
         builder.add_action(accesskit::Action::Focus);
+        builder.add_child_action(accesskit::Action::Focus);
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
@@ -341,7 +343,7 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        if tree.accesskit_node_id() != Some(action.target_node) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
                 tree.state.downcast_mut::<State>().is_focused = false;
             }
