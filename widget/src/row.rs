@@ -4,7 +4,8 @@ use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::Operation;
 use crate::core::{
     Element, Event, Length, Padding, Pixels, Rectangle, Shell, Size, Vector, Widget,
 };
@@ -38,6 +39,7 @@ pub struct Row<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> {
     height: Length,
     align: Alignment,
     clip: bool,
+    focusable: bool,
     accessible_label: Option<String>,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
 }
@@ -80,6 +82,7 @@ where
             height: Length::Fit,
             align: Alignment::Start,
             clip: false,
+            focusable: false,
             accessible_label: None,
             children,
         }
@@ -123,6 +126,12 @@ where
     /// overflow.
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Enables the [`Row`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
         self
     }
 
@@ -185,6 +194,22 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: crate::core::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        if self.focusable {
+            crate::focus_ring::FocusState::tag()
+        } else {
+            tree::Tag::stateless()
+        }
+    }
+
+    fn state(&self) -> tree::State {
+        if self.focusable {
+            crate::focus_ring::FocusState::state()
+        } else {
+            tree::State::None
+        }
+    }
+
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(&mut self.children);
 
@@ -232,6 +257,10 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<crate::focus_ring::FocusState>();
+            operation.focusable(None, layout.bounds(), state);
+        }
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.children
@@ -291,6 +320,15 @@ where
             builder.set_label(label.as_str());
         }
 
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree.state.downcast_ref::<crate::focus_ring::FocusState>().is_focused {
+                tree.set_accesskit_focused(true);
+            }
+        }
+
         nodes.push((id, builder));
 
         Some(id)
@@ -304,6 +342,14 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<crate::focus_ring::FocusState>().is_focused = true;
+                shell.request_redraw();
+            }
+            return;
+        }
+
         for ((child, state), layout) in self
             .children
             .iter_mut()
@@ -374,6 +420,15 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        #[cfg(feature = "accessibility")]
+        if self.focusable && tree.accesskit_focused() {
+            crate::focus_ring::draw(
+                renderer,
+                layout.bounds(),
+                &crate::focus_ring::Appearance::default(),
+            );
+        }
+
         if let Some(clipped_viewport) = layout.bounds().intersection(viewport) {
             let viewport = if self.clip {
                 &clipped_viewport
@@ -457,6 +512,14 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: crate::core::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        self.row.tag()
+    }
+
+    fn state(&self) -> tree::State {
+        self.row.state()
+    }
+
     fn diff(&mut self, tree: &mut Tree) {
         self.row.diff(tree);
     }

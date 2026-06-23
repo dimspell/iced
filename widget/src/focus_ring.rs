@@ -1,5 +1,43 @@
 //! Show focus rings around focused widgets.
+use crate::core::widget::tree;
 use crate::core::{Background, Border, Color, Rectangle, Renderer};
+use crate::core::widget::operation;
+
+/// The focus state for a focusable container widget.
+///
+/// This is the tree state used by container widgets (Container, Column, Row,
+/// Stack, Grid, Tooltip) when they are marked as focusable.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FocusState {
+    /// Whether the widget currently has keyboard focus.
+    pub is_focused: bool,
+}
+
+impl operation::Focusable for FocusState {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
+}
+
+impl FocusState {
+    /// Returns the [`tree::Tag`] for focusable container state.
+    pub fn tag() -> tree::Tag {
+        tree::Tag::of::<FocusState>()
+    }
+
+    /// Creates a new [`tree::State`] for a focusable container.
+    pub fn state() -> tree::State {
+        tree::State::new(FocusState::default())
+    }
+}
 
 /// The appearance of a focus ring.
 #[derive(Debug, Clone, Copy, PartialEq)]

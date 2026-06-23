@@ -3,7 +3,7 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{Element, Event, Layout, Length, Rectangle, Shell, Size, Vector, Widget};
 
 /// A container that displays children on top of each other.
@@ -23,6 +23,7 @@ pub struct Stack<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> 
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     clip: bool,
     base_layer: usize,
+    focusable: bool,
     accessible_label: Option<String>,
 }
 
@@ -57,6 +58,7 @@ where
             children,
             clip: false,
             base_layer: 0,
+            focusable: false,
             accessible_label: None,
         }
     }
@@ -114,6 +116,12 @@ where
         self.accessible_label = Some(label.into());
         self
     }
+
+    /// Enables the [`Stack`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
+        self
+    }
 }
 
 impl<Message, Renderer> Default for Stack<'_, Message, Renderer>
@@ -138,6 +146,22 @@ where
 
             self.width = self.width.cross(size.width);
             self.height = self.height.cross(size.height);
+        }
+    }
+
+    fn tag(&self) -> tree::Tag {
+        if self.focusable {
+            crate::focus_ring::FocusState::tag()
+        } else {
+            tree::Tag::stateless()
+        }
+    }
+
+    fn state(&self) -> tree::State {
+        if self.focusable {
+            crate::focus_ring::FocusState::state()
+        } else {
+            tree::State::None
         }
     }
 
@@ -195,6 +219,11 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<crate::focus_ring::FocusState>();
+            operation.focusable(None, layout.bounds(), state);
+        }
+
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.children
@@ -286,6 +315,11 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        #[cfg(feature = "accessibility")]
+        if self.focusable && tree.accesskit_focused() {
+            crate::focus_ring::draw(renderer, layout.bounds(), &crate::focus_ring::Appearance::default());
+        }
+
         if let Some(clipped_viewport) = layout.bounds().intersection(viewport) {
             let viewport = if self.clip {
                 &clipped_viewport
@@ -395,9 +429,51 @@ where
             builder.set_label(label.as_str());
         }
 
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree.state.downcast_ref::<crate::focus_ring::FocusState>().is_focused {
+                tree.set_accesskit_focused(true);
+            }
+        }
+
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<crate::focus_ring::FocusState>().is_focused = true;
+                shell.request_redraw();
+            }
+            return;
+        }
+
+        for ((child, state), layout) in self
+            .children
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            if !state.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
+            child
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+            break;
+        }
     }
 
     fn overlay<'b>(

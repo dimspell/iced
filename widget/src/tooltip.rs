@@ -72,6 +72,7 @@ where
     delay: Duration,
     class: Theme::Class<'a>,
     accessible_label: Option<String>,
+    focusable: bool,
 }
 
 impl<'a, Message, Theme, Renderer> Tooltip<'a, Message, Theme, Renderer>
@@ -100,6 +101,7 @@ where
             delay: Duration::ZERO,
             class: Theme::default(),
             accessible_label: None,
+            focusable: false,
         }
     }
 
@@ -152,6 +154,12 @@ where
         self.accessible_label = Some(label.into());
         self
     }
+
+    /// Enables the [`Tooltip`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
+        self
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -202,47 +210,47 @@ where
             let now = Instant::now();
             let cursor_position = cursor.position_over(layout.bounds());
 
-            match (*state, cursor_position) {
-                (State::Idle, Some(cursor_position)) => {
+            match (state.kind, cursor_position) {
+                (TooltipKind::Idle, Some(cursor_position)) => {
                     if self.delay == Duration::ZERO {
-                        *state = State::Open { cursor_position };
+                        state.kind = TooltipKind::Open { cursor_position };
                         shell.invalidate_layout();
                     } else {
-                        *state = State::Hovered { at: now };
+                        state.kind = TooltipKind::Hovered { at: now };
                     }
 
                     shell.request_redraw_at(now + self.delay);
                 }
-                (State::Hovered { .. }, None) => {
-                    *state = State::Idle;
+                (TooltipKind::Hovered { .. }, None) => {
+                    state.kind = TooltipKind::Idle;
                 }
-                (State::Hovered { at, .. }, _) if at.elapsed() < self.delay => {
+                (TooltipKind::Hovered { at, .. }, _) if at.elapsed() < self.delay => {
                     shell.request_redraw_at(now + self.delay - at.elapsed());
                 }
-                (State::Hovered { .. }, Some(cursor_position)) => {
-                    *state = State::Open { cursor_position };
+                (TooltipKind::Hovered { .. }, Some(cursor_position)) => {
+                    state.kind = TooltipKind::Open { cursor_position };
                     shell.invalidate_layout();
                 }
                 (
-                    State::Open {
+                    TooltipKind::Open {
                         cursor_position: last_position,
                     },
                     Some(cursor_position),
                 ) if self.position == Position::FollowCursor
                     && last_position != cursor_position =>
                 {
-                    *state = State::Open { cursor_position };
+                    state.kind = TooltipKind::Open { cursor_position };
                     shell.request_redraw();
                 }
-                (State::Open { .. }, None) => {
-                    *state = State::Idle;
+                (TooltipKind::Open { .. }, None) => {
+                    state.kind = TooltipKind::Idle;
                     shell.invalidate_layout();
 
                     if !matches!(event, Event::Window(window::Event::RedrawRequested(_)),) {
                         shell.request_redraw();
                     }
                 }
-                (State::Open { .. }, Some(_)) | (State::Idle, None) => (),
+                (TooltipKind::Open { .. }, Some(_)) | (TooltipKind::Idle, None) => (),
             }
         }
 
@@ -284,6 +292,15 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        #[cfg(feature = "accessibility")]
+        if self.focusable && tree.accesskit_focused() {
+            crate::focus_ring::draw(
+                renderer,
+                layout.bounds(),
+                &crate::focus_ring::Appearance::default(),
+            );
+        }
+
         self.content.as_widget().draw(
             &tree.children[0],
             renderer,
@@ -328,10 +345,19 @@ where
         // Signal to AT that this widget has a tooltip popup
         builder.set_has_popup(accesskit::HasPopup::Menu);
         let state = tree.state.downcast_ref::<State>();
-        builder.set_expanded(matches!(state, State::Open { .. }));
+        builder.set_expanded(matches!(state.kind, TooltipKind::Open { .. }));
 
         if let Some(label) = &self.accessible_label {
             builder.set_label(label.as_str());
+        }
+
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree.state.downcast_ref::<State>().is_focused {
+                tree.set_accesskit_focused(true);
+            }
         }
 
         nodes.push((id, builder));
@@ -346,14 +372,21 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        if let Some(state) = tree.children.first_mut() {
-            if !state.contains_accesskit_node_id(action.target_node) {
-                return;
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State>().is_focused = true;
+                shell.request_redraw();
             }
+            return;
+        }
 
-            self.content
-                .as_widget_mut()
-                .accessibility_action(state, layout, action, shell);
+        // Forward to content child
+        if let Some(state) = tree.children.first_mut() {
+            if state.contains_accesskit_node_id(action.target_node) {
+                self.content
+                    .as_widget_mut()
+                    .accessibility_action(state, layout, action, shell);
+            }
         }
     }
 
@@ -377,7 +410,7 @@ where
             translation,
         );
 
-        let tooltip = if let State::Open { cursor_position } = *state {
+        let tooltip = if let TooltipKind::Open { cursor_position } = state.kind {
             Some(overlay::Element::new(Box::new(Overlay {
                 position: layout.position() + translation,
                 tooltip: &mut self.tooltip,
@@ -411,6 +444,10 @@ where
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<State>();
+            operation.focusable(None, layout.bounds(), state);
+        }
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
@@ -454,7 +491,13 @@ pub enum Position {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum State {
+struct State {
+    kind: TooltipKind,
+    is_focused: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum TooltipKind {
     #[default]
     Idle,
     Hovered {
@@ -463,6 +506,20 @@ enum State {
     Open {
         cursor_position: Point,
     },
+}
+
+impl crate::core::widget::operation::Focusable for State {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
 }
 
 struct Overlay<'a, 'b, Message, Theme, Renderer>

@@ -3,7 +3,7 @@ use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{Element, Event, Length, Pixels, Rectangle, Shell, Size, Vector, Widget};
 
 /// A container that distributes its contents on a responsive grid.
@@ -12,6 +12,7 @@ pub struct Grid<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> {
     columns: Constraint,
     width: Option<Pixels>,
     height: Sizing,
+    focusable: bool,
     accessible_label: Option<String>,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
 }
@@ -52,6 +53,7 @@ where
             width: None,
             height: Sizing::AspectRatio(1.0),
             accessible_label: None,
+            focusable: false,
             children,
         }
     }
@@ -117,6 +119,12 @@ where
         self
     }
 
+    /// Enables the [`Grid`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
+        self
+    }
+
     /// Extends the [`Grid`] with the given children.
     pub fn extend(
         self,
@@ -150,6 +158,22 @@ where
 {
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(&mut self.children);
+    }
+
+    fn tag(&self) -> tree::Tag {
+        if self.focusable {
+            crate::focus_ring::FocusState::tag()
+        } else {
+            tree::Tag::stateless()
+        }
+    }
+
+    fn state(&self) -> tree::State {
+        if self.focusable {
+            crate::focus_ring::FocusState::state()
+        } else {
+            tree::State::None
+        }
     }
 
     fn size(&self) -> Size<Length> {
@@ -251,6 +275,10 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<crate::focus_ring::FocusState>();
+            operation.focusable(None, layout.bounds(), state);
+        }
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.children
@@ -319,6 +347,15 @@ where
         viewport: &Rectangle,
     ) {
         if let Some(viewport) = layout.bounds().intersection(viewport) {
+            #[cfg(feature = "accessibility")]
+            if self.focusable && tree.accesskit_focused() {
+                crate::focus_ring::draw(
+                    renderer,
+                    layout.bounds(),
+                    &crate::focus_ring::Appearance::default(),
+                );
+            }
+
             for ((child, tree), layout) in self
                 .children
                 .iter()
@@ -382,9 +419,51 @@ where
             builder.set_label(label.as_str());
         }
 
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree.state.downcast_ref::<crate::focus_ring::FocusState>().is_focused {
+                tree.set_accesskit_focused(true);
+            }
+        }
+
         nodes.push((id, builder));
 
         Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<crate::focus_ring::FocusState>().is_focused = true;
+                shell.request_redraw();
+            }
+            return;
+        }
+
+        for ((child, state), layout) in self
+            .children
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            if !state.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
+            child
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+            break;
+        }
     }
 
     fn overlay<'b>(
