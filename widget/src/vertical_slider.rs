@@ -440,7 +440,7 @@ where
 
     fn draw(
         &self,
-        _tree: &Tree,
+        tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
@@ -449,6 +449,11 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
+
+        #[cfg(feature = "accessibility")]
+        if tree.accesskit_focused() {
+            crate::focus_ring::draw(renderer, bounds, &crate::focus_ring::Appearance::default());
+        }
 
         let style = theme.style(&self.class, self.status.unwrap_or(Status::Active));
 

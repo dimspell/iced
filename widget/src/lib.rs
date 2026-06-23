@@ -91,6 +91,7 @@ pub mod checkbox;
 pub mod combo_box;
 pub mod container;
 pub mod float;
+pub mod focus_ring;
 pub mod grid;
 pub mod keyed;
 pub mod overlay;
