@@ -60,6 +60,7 @@ where
     padding_y: f32,
     separator_x: f32,
     separator_y: f32,
+    accessible_label: Option<String>,
     class: Theme::Class<'a>,
 }
 
@@ -130,6 +131,7 @@ where
             padding_y: 5.0,
             separator_x: 1.0,
             separator_y: 1.0,
+            accessible_label: None,
             class: Theme::default(),
         }
     }
@@ -175,6 +177,12 @@ where
     /// Sets the thickness of the vertical line separator between the cells of the [`Table`].
     pub fn separator_y(mut self, separator: impl Into<Pixels>) -> Self {
         self.separator_y = separator.into().0;
+        self
+    }
+
+    /// Sets the accessible label of the [`Table`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -676,6 +684,9 @@ where
 
         let mut table_builder = accesskit::Node::new(Role::Table);
         table_builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        if let Some(label) = &self.accessible_label {
+            table_builder.set_label(label.as_str());
+        }
         for row_id in &row_ids {
             table_builder.push_child(*row_id);
         }

@@ -208,12 +208,12 @@ impl App {
                 .spacing(4),
             ]
             .spacing(20),
-            container(table::table(
+            table::table(
                 [table::column(text("Name"), |person: &Person| {
                     text(&person.name)
                 })],
                 &self.people[..],
-            ))
+            )
             .accessible_label("People table"),
         ]
         .spacing(12)
