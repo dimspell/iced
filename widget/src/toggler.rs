@@ -96,6 +96,9 @@ where
     wrapping: text::Wrapping,
     spacing: f32,
     font: Option<Renderer::Font>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
 }
@@ -130,6 +133,9 @@ where
             wrapping: text::Wrapping::default(),
             spacing: Self::DEFAULT_SIZE / 2.0,
             font: None,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
             class: Theme::default(),
             last_status: None,
         }
@@ -138,6 +144,24 @@ where
     /// Sets the label of the [`Toggler`].
     pub fn label(mut self, label: impl text::IntoFragment<'a>) -> Self {
         self.label = Some(label.into_fragment());
+        self
+    }
+
+    /// Sets the accessible label of the [`Toggler`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Toggler`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the accessible value of the [`Toggler`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -555,11 +579,19 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Switch);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
-        if let Some(label) = &self.label {
+        if let Some(label) = self.accessible_label.as_deref() {
+            builder.set_label(label);
+        } else if let Some(label) = &self.label {
             builder.set_label(label.as_ref());
         }
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            None,
+            self.accessible_description.as_deref(),
+            self.accessible_value.as_deref(),
+        );
 
         builder.set_toggled(accesskit::Toggled::from(self.is_toggled));
 

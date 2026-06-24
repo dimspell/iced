@@ -61,8 +61,9 @@ where
     girth: Length,
     is_vertical: bool,
     class: Theme::Class<'a>,
-    #[cfg(feature = "accessibility")]
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 impl<'a, Theme> ProgressBar<'a, Theme>
@@ -85,8 +86,9 @@ where
             girth: Length::from(Self::DEFAULT_GIRTH),
             is_vertical: false,
             class: Theme::default(),
-            #[cfg(feature = "accessibility")]
             accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 
@@ -106,9 +108,20 @@ where
     ///
     /// Screen readers will announce this label along with the current progress
     /// value (e.g., "Download progress, 45%").
-    #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description for this progress bar.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value for this progress bar.
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -255,13 +268,17 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::ProgressIndicator);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         // Normalize the value and format as percentage
         let (range_start, range_end) = self.range.clone().into_inner();
         if range_end > range_start {
             let ratio = (self.value - range_start) / (range_end - range_start);
-            builder.set_value(format!("{:.0}%", ratio * 100.0));
+            builder.set_value(
+                self.accessible_value
+                    .clone()
+                    .unwrap_or_else(|| format!("{:.0}%", ratio * 100.0)),
+            );
             builder.set_numeric_value(ratio as f64);
             builder.set_min_numeric_value(0.0);
             builder.set_max_numeric_value(1.0);
@@ -270,9 +287,12 @@ where
         // Set as live region so screen readers announce progress changes
         builder.set_live(accesskit::Live::Polite);
 
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
 
         nodes.push((id, builder));
 

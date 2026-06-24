@@ -55,6 +55,22 @@ fn button_with_on_press() {
 }
 
 #[test]
+fn button_accessible_metadata_overrides_child_label() {
+    let mut ui = simulator::<(), Theme, Renderer>(
+        button("Visible")
+            .accessible_label("Run")
+            .accessible_description("Starts the job")
+            .accessible_value("Ready")
+            .on_press(()),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::Button).expect("Button node");
+    assert_eq!(node.label(), Some("Run"));
+    assert_eq!(node.description(), Some("Starts the job"));
+    assert_eq!(node.value(), Some("Ready"));
+}
+
+#[test]
 fn focusable_controls_have_non_empty_bounds() {
     let mut ui = simulator::<(), Theme, Renderer>(column![
         button("Button").on_press(()),
@@ -107,11 +123,44 @@ fn checkbox_role() {
 }
 
 #[test]
+fn checkbox_accessible_metadata() {
+    let mut ui = simulator::<(), Theme, Renderer>(
+        checkbox(true)
+            .label("Visible")
+            .accessible_label("Accept terms")
+            .accessible_description("Required before continuing")
+            .accessible_value("Accepted")
+            .on_toggle(|_| {}),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::CheckBox).expect("CheckBox node");
+    assert_eq!(node.label(), Some("Accept terms"));
+    assert_eq!(node.description(), Some("Required before continuing"));
+    assert_eq!(node.value(), Some("Accepted"));
+}
+
+#[test]
 fn toggler_role() {
     let mut ui = simulator::<(), Theme, Renderer>(toggler(true).label("WiFi"));
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Switch).expect("Switch node");
     assert_eq!(node.label(), Some("WiFi"));
+}
+
+#[test]
+fn toggler_accessible_metadata() {
+    let mut ui = simulator::<(), Theme, Renderer>(
+        toggler(true)
+            .label("Visible")
+            .accessible_label("Airplane mode")
+            .accessible_description("Disables network radios")
+            .accessible_value("On"),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::Switch).expect("Switch node");
+    assert_eq!(node.label(), Some("Airplane mode"));
+    assert_eq!(node.description(), Some("Disables network radios"));
+    assert_eq!(node.value(), Some("On"));
 }
 
 #[test]
@@ -138,6 +187,22 @@ fn slider_numeric_range() {
     assert_eq!(node.max_numeric_value(), Some(100.0));
     assert_eq!(node.numeric_value(), Some(50.0));
     assert_eq!(node.label(), Some("Volume"));
+}
+
+#[test]
+fn slider_accessible_metadata() {
+    let mut ui = simulator::<(), Theme, Renderer>(
+        slider(0..=100, 50, |_| {})
+            .accessible_label("Brightness")
+            .accessible_description("Screen brightness")
+            .accessible_value("Half"),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::Slider).expect("Slider node");
+    assert_eq!(node.label(), Some("Brightness"));
+    assert_eq!(node.description(), Some("Screen brightness"));
+    assert_eq!(node.value(), Some("Half"));
+    assert_eq!(node.numeric_value(), Some(50.0));
 }
 
 #[test]
@@ -169,6 +234,37 @@ fn text_input_value_and_label() {
     let node = find_node(&tree, Role::TextInput).expect("TextInput node");
     assert_eq!(node.value(), Some("Hello"));
     assert!(node.label().is_some());
+}
+
+#[test]
+fn text_input_accessible_metadata_and_set_value() {
+    let mut ui = simulator::<String, Theme, Renderer>(
+        text_input("", "old")
+            .accessible_label("Name")
+            .accessible_description("Full name")
+            .accessible_value("Display value")
+            .on_input(|value| value),
+    );
+    let tree = ui.accessibility_tree();
+    let (input_id, node) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::TextInput)
+        .expect("TextInput node");
+    assert_eq!(node.label(), Some("Name"));
+    assert_eq!(node.description(), Some("Full name"));
+    assert_eq!(node.value(), Some("Display value"));
+    assert!(node.supports_action(Action::SetValue));
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: Some(accesskit::ActionData::Value("new".into())),
+    });
+
+    let messages: Vec<String> = ui.into_messages().collect();
+    assert_eq!(messages, vec!["new"]);
 }
 
 #[test]
@@ -221,6 +317,40 @@ fn text_editor_with_on_edit_has_action() {
 }
 
 #[test]
+fn text_editor_accessible_metadata_and_set_value() {
+    use iced_widget::text_editor;
+
+    let content = text_editor::Content::new();
+    let mut ui = simulator::<i32, Theme, Renderer>(
+        text_editor(&content)
+            .accessible_label("Bio")
+            .accessible_description("Short biography")
+            .accessible_value("Displayed biography")
+            .on_action(|_| 1),
+    );
+    let tree = ui.accessibility_tree();
+    let (editor_id, node) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::TextInput)
+        .expect("TextEditor node");
+    assert_eq!(node.label(), Some("Bio"));
+    assert_eq!(node.description(), Some("Short biography"));
+    assert_eq!(node.value(), Some("Displayed biography"));
+    assert!(node.supports_action(Action::SetValue));
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: Some(accesskit::ActionData::Value("replacement".into())),
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![1]);
+}
+
+#[test]
 fn progress_bar_properties() {
     let mut ui = simulator::<(), Theme, Renderer>(progress_bar(0.0..=100.0, 50.0));
     let tree = ui.accessibility_tree();
@@ -229,6 +359,21 @@ fn progress_bar_properties() {
     assert_eq!(node.min_numeric_value(), Some(0.0));
     assert_eq!(node.max_numeric_value(), Some(1.0));
     assert_eq!(node.live(), Some(accesskit::Live::Polite));
+}
+
+#[test]
+fn progress_bar_accessible_metadata() {
+    let mut ui = simulator::<(), Theme, Renderer>(
+        progress_bar(0.0..=100.0, 50.0)
+            .accessible_label("Download")
+            .accessible_description("Current download progress")
+            .accessible_value("Half complete"),
+    );
+    let tree = ui.accessibility_tree();
+    let node = find_node(&tree, Role::ProgressIndicator).expect("ProgressIndicator node");
+    assert_eq!(node.label(), Some("Download"));
+    assert_eq!(node.description(), Some("Current download progress"));
+    assert_eq!(node.value(), Some("Half complete"));
 }
 
 // === HEADINGS ===
@@ -597,6 +742,69 @@ fn decrement_action_dispatches_slider_message() {
 }
 
 #[test]
+fn set_value_action_dispatches_slider_message() {
+    let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |v| v));
+    let tree = ui.accessibility_tree();
+    let (slider_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Slider)
+        .expect("Slider node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *slider_id,
+        data: Some(accesskit::ActionData::NumericValue(42.0)),
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![42]);
+}
+
+#[test]
+fn set_value_action_clamps_slider_message() {
+    let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |v| v));
+    let tree = ui.accessibility_tree();
+    let (slider_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Slider)
+        .expect("Slider node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *slider_id,
+        data: Some(accesskit::ActionData::NumericValue(250.0)),
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![100]);
+}
+
+#[test]
+fn set_value_action_dispatches_vertical_slider_message() {
+    let mut ui = simulator::<i32, Theme, Renderer>(vertical_slider(0..=100, 50, |v| v));
+    let tree = ui.accessibility_tree();
+    let (slider_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| n.role() == Role::Slider)
+        .expect("Slider node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *slider_id,
+        data: Some(accesskit::ActionData::Value("75".into())),
+    });
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![75]);
+}
+
+#[test]
 fn slider_increment_targets_only_requested_slider() {
     let mut ui = simulator::<i32, Theme, Renderer>(row![
         slider(0..=100, 10, |v| v),
@@ -742,22 +950,27 @@ fn pick_list_disabled_when_no_on_select() {
 #[test]
 fn image_with_accessible_label() {
     let mut ui = simulator::<(), Theme, Renderer>(
-        iced_widget::image("test.png").accessible_label("Company Logo"),
+        iced_widget::image("test.png")
+            .accessible_label("Company Logo")
+            .accessible_description("Square brand mark"),
     );
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Image).expect("Image node");
     assert_eq!(node.label(), Some("Company Logo"));
+    assert_eq!(node.description(), Some("Square brand mark"));
 }
 
 #[test]
 fn svg_with_accessible_label() {
     let mut ui = simulator::<(), Theme, Renderer>(
         iced_widget::svg(iced_widget::core::svg::Handle::from_path("icon.svg"))
-            .accessible_label("Settings Icon"),
+            .accessible_label("Settings Icon")
+            .accessible_description("Cog icon"),
     );
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Image).expect("Svg node");
     assert_eq!(node.label(), Some("Settings Icon"));
+    assert_eq!(node.description(), Some("Cog icon"));
 }
 
 #[test]
@@ -779,11 +992,13 @@ fn qr_code_custom_label_and_value() {
     let mut ui = simulator::<(), Theme, Renderer>(
         iced_widget::qr_code(&data)
             .accessible_label("Example QR")
+            .accessible_description("Encodes the example website")
             .encoded_value("https://example.com"),
     );
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::Image).expect("QRCode node");
     assert_eq!(node.label(), Some("Example QR"));
+    assert_eq!(node.description(), Some("Encodes the example website"));
     assert_eq!(node.value(), Some("https://example.com"));
 }
 
@@ -1189,6 +1404,49 @@ fn scrollable_with_overflow_shows_actions() {
         "Overflowing scrollable should advertise ScrollUp"
     );
     assert!(node.scroll_y_max() > Some(0.0));
+}
+
+#[test]
+fn scrollable_scroll_into_view_moves_to_descendant() {
+    use iced_test::core::Length;
+
+    let mut ui = simulator::<(), Theme, Renderer>(
+        scrollable(column![
+            text("Top"),
+            iced_widget::space::Space::new().height(Length::Fixed(900.0)),
+            text("Target")
+        ])
+        .height(Length::Fixed(50.0)),
+    );
+
+    let tree = ui.accessibility_tree();
+    let (target_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::Label && node.value() == Some("Target"))
+        .expect("Target label node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::ScrollIntoView,
+        target_tree: TreeId::ROOT,
+        target_node: *target_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    let scrollable = tree
+        .nodes
+        .iter()
+        .find_map(|(_, node)| {
+            if node.role() == Role::Group && node.scroll_y_max() > Some(0.0) {
+                Some(node)
+            } else {
+                None
+            }
+        })
+        .expect("Scrollable Group node");
+
+    assert!(scrollable.scroll_y() > Some(0.0));
 }
 
 #[test]

@@ -102,6 +102,8 @@ where
     class: Theme::Class<'a>,
     last_status: Option<Status>,
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 /// The default [`Padding`] of a [`TextInput`].
@@ -138,6 +140,8 @@ where
             class: Theme::default(),
             last_status: None,
             accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 
@@ -276,6 +280,18 @@ where
         self.accessible_label = Some(label.into());
         self
     }
+
+    /// Sets the accessible description of the [`TextInput`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value of the [`TextInput`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
+        self
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -362,18 +378,24 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         if self.is_secure {
             builder.set_hidden();
         }
 
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
 
         // Use placeholder as name if value is empty
-        let value = self.value.to_string();
+        let value = self
+            .accessible_value
+            .clone()
+            .unwrap_or_else(|| self.value.to_string());
         if value.is_empty() {
             if !self.placeholder.is_empty() {
                 builder.set_placeholder(self.placeholder.as_str());
@@ -386,6 +408,7 @@ where
             builder.set_disabled();
         } else {
             builder.add_action(accesskit::Action::ReplaceSelectedText);
+            builder.add_action(accesskit::Action::SetValue);
         }
 
         builder.add_action(accesskit::Action::Focus);
@@ -412,7 +435,7 @@ where
         action: &accesskit::ActionRequest,
         shell: &mut crate::core::Shell<'_, Message>,
     ) {
-        if tree.accesskit_node_id() != Some(action.target_node) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
                 tree.state
                     .downcast_mut::<State<Renderer::Paragraph>>()
@@ -422,7 +445,10 @@ where
             return;
         }
 
-        if action.action == accesskit::Action::ReplaceSelectedText {
+        if matches!(
+            action.action,
+            accesskit::Action::ReplaceSelectedText | accesskit::Action::SetValue
+        ) {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_input) = &self.on_input {

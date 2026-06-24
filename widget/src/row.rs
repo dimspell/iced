@@ -4,8 +4,8 @@ use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::tree::{self, Tree};
 use crate::core::widget::Operation;
+use crate::core::widget::tree::{self, Tree};
 use crate::core::{
     Element, Event, Length, Padding, Pixels, Rectangle, Shell, Size, Vector, Widget,
 };
@@ -324,7 +324,11 @@ where
             builder.add_action(accesskit::Action::Focus);
             builder.add_child_action(accesskit::Action::Focus);
 
-            if tree.state.downcast_ref::<crate::focus_ring::FocusState>().is_focused {
+            if tree
+                .state
+                .downcast_ref::<crate::focus_ring::FocusState>()
+                .is_focused
+            {
                 tree.set_accesskit_focused(true);
             }
         }
@@ -344,7 +348,9 @@ where
     ) {
         if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
-                tree.state.downcast_mut::<crate::focus_ring::FocusState>().is_focused = true;
+                tree.state
+                    .downcast_mut::<crate::focus_ring::FocusState>()
+                    .is_focused = true;
                 shell.request_redraw();
             }
             return;

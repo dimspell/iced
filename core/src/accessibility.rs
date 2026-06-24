@@ -7,6 +7,7 @@
 pub use accesskit;
 
 use crate::Rectangle;
+use crate::widget;
 
 /// Converts an iced [`Rectangle`] into an [`accesskit::Rect`].
 pub fn rect(rectangle: Rectangle) -> accesskit::Rect {
@@ -49,5 +50,33 @@ pub fn non_empty(rectangle: Rectangle) -> Rectangle {
         width: rectangle.width.max(1.0),
         height: rectangle.height.max(1.0),
         ..rectangle
+    }
+}
+
+/// Sets a node's bounds and stores them in the widget tree.
+pub fn set_bounds(tree: &widget::Tree, node: &mut accesskit::Node, bounds: Rectangle) {
+    let bounds = non_empty(bounds);
+
+    tree.set_accesskit_bounds(bounds);
+    node.set_bounds(rect(bounds));
+}
+
+/// Applies common string metadata to a node.
+pub fn apply_metadata(
+    node: &mut accesskit::Node,
+    label: Option<&str>,
+    description: Option<&str>,
+    value: Option<&str>,
+) {
+    if let Some(label) = label {
+        node.set_label(label);
+    }
+
+    if let Some(description) = description {
+        node.set_description(description);
+    }
+
+    if let Some(value) = value {
+        node.set_value(value);
     }
 }

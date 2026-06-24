@@ -102,6 +102,8 @@ where
     class: Theme::Class<'a>,
     status: Option<Status>,
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 impl<'a, T, Message, Theme> Slider<'a, T, Message, Theme>
@@ -150,6 +152,8 @@ where
             class: Theme::default(),
             status: None,
             accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 
@@ -228,6 +232,18 @@ where
     /// ```
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Slider`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value of the [`Slider`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 }
@@ -436,7 +452,7 @@ where
 
     fn draw(
         &self,
-        tree: &Tree,
+        _tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
@@ -447,12 +463,8 @@ where
         let bounds = layout.bounds();
 
         #[cfg(feature = "accessibility")]
-        if tree.accesskit_focused() {
-            crate::focus_ring::draw(
-                renderer,
-                bounds,
-                &crate::focus_ring::Appearance::default(),
-            );
+        if _tree.accesskit_focused() {
+            crate::focus_ring::draw(renderer, bounds, &crate::focus_ring::Appearance::default());
         }
 
         let style = theme.style(&self.class, self.status.unwrap_or(Status::Active));
@@ -580,24 +592,32 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Slider);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
-
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         // Set the value as a string
         let value_f64: f64 = self.value.as_();
         let start_f64: f64 = self.range.start().as_();
         let end_f64: f64 = self.range.end().as_();
-        builder.set_value(format!("{}", value_f64));
+        builder.set_value(
+            self.accessible_value
+                .clone()
+                .unwrap_or_else(|| format!("{value_f64}")),
+        );
         builder.set_numeric_value(value_f64);
         builder.set_min_numeric_value(start_f64);
         builder.set_max_numeric_value(end_f64);
 
         builder.add_action(accesskit::Action::Increment);
         builder.add_action(accesskit::Action::Decrement);
+        builder.add_action(accesskit::Action::SetValue);
         builder.add_action(accesskit::Action::Focus);
+
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
 
         // Track keyboard focus for the accessibility tree
         if tree.state.downcast_ref::<State>().is_focused {
@@ -649,8 +669,29 @@ where
                     shell.request_redraw();
                 }
             }
+            accesskit::Action::SetValue => {
+                let Some(new_value) = action.data.as_ref().and_then(numeric_action_value) else {
+                    return;
+                };
+
+                let new_value = new_value.clamp(self.range.start().as_(), self.range.end().as_());
+
+                if let Some(value) = T::from_f64(new_value) {
+                    shell.publish((self.on_change)(value));
+                    shell.request_redraw();
+                }
+            }
             _ => {}
         }
+    }
+}
+
+#[cfg(feature = "accessibility")]
+fn numeric_action_value(data: &accesskit::ActionData) -> Option<f64> {
+    match data {
+        accesskit::ActionData::NumericValue(value) => Some(*value),
+        accesskit::ActionData::Value(value) => value.parse().ok(),
+        _ => None,
     }
 }
 

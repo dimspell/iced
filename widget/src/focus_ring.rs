@@ -1,7 +1,7 @@
 //! Show focus rings around focused widgets.
+use crate::core::widget::operation;
 use crate::core::widget::tree;
 use crate::core::{Background, Border, Color, Rectangle, Renderer};
-use crate::core::widget::operation;
 
 /// The focus state for a focusable container widget.
 ///
@@ -83,11 +83,7 @@ pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Appearance + 'a>;
 /// The focus ring is drawn as a colored halo slightly larger than the widget
 /// bounds. The widget draws its own background on top, which covers the inner
 /// portion and leaves only the ring visible.
-pub fn draw<R: Renderer>(
-    renderer: &mut R,
-    bounds: Rectangle,
-    appearance: &Appearance,
-) {
+pub fn draw<R: Renderer>(renderer: &mut R, bounds: Rectangle, appearance: &Appearance) {
     use crate::core::renderer::Quad;
 
     let ring_bounds = Rectangle {

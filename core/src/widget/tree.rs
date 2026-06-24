@@ -1,4 +1,6 @@
 //! Store internal widget state in a state tree to ensure continuity.
+#[cfg(feature = "accessibility")]
+use crate::Rectangle;
 use crate::Widget;
 
 use std::any::{self, Any};
@@ -26,6 +28,11 @@ pub struct Tree {
     #[cfg(feature = "accessibility")]
     pub accesskit_node_id: Cell<Option<accesskit::NodeId>>,
 
+    /// The bounds of the accesskit node assigned to this widget during the
+    /// last accessibility tree build, if any.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_bounds: Cell<Option<Rectangle>>,
+
     /// Whether this widget currently has keyboard focus, determined during the
     /// last accessibility tree build.
     #[cfg(feature = "accessibility")]
@@ -41,6 +48,8 @@ impl Tree {
             children: Vec::new(),
             #[cfg(feature = "accessibility")]
             accesskit_node_id: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_bounds: Cell::new(None),
             #[cfg(feature = "accessibility")]
             accesskit_focused: Cell::new(false),
         }
@@ -62,6 +71,8 @@ impl Tree {
             #[cfg(feature = "accessibility")]
             accesskit_node_id: Cell::new(None),
             #[cfg(feature = "accessibility")]
+            accesskit_bounds: Cell::new(None),
+            #[cfg(feature = "accessibility")]
             accesskit_focused: Cell::new(false),
         }
     }
@@ -76,6 +87,18 @@ impl Tree {
     #[cfg(feature = "accessibility")]
     pub fn accesskit_node_id(&self) -> Option<accesskit::NodeId> {
         self.accesskit_node_id.get()
+    }
+
+    /// Sets the bounds of the accesskit node assigned to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_bounds(&self, bounds: Rectangle) {
+        self.accesskit_bounds.set(Some(bounds));
+    }
+
+    /// Returns the bounds of the accesskit node assigned to this widget, if any.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_bounds(&self) -> Option<Rectangle> {
+        self.accesskit_bounds.get()
     }
 
     /// Returns whether this tree, or any of its children, contains the
@@ -94,6 +117,19 @@ impl Tree {
     #[cfg(feature = "accessibility")]
     pub fn owns_accesskit_node_id(&self, id: accesskit::NodeId) -> bool {
         self.contains_accesskit_node_id(id)
+    }
+
+    /// Returns the bounds of the provided accesskit [`NodeId`] if this tree
+    /// or one of its children owns it.
+    #[cfg(feature = "accessibility")]
+    pub fn find_accesskit_bounds(&self, id: accesskit::NodeId) -> Option<Rectangle> {
+        if self.accesskit_node_id() == Some(id) {
+            return self.accesskit_bounds();
+        }
+
+        self.children
+            .iter()
+            .find_map(|child| child.find_accesskit_bounds(id))
     }
 
     /// Sets whether this widget has keyboard focus.

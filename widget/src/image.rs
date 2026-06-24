@@ -66,8 +66,8 @@ pub struct Image<Handle = image::Handle> {
     opacity: f32,
     scale: f32,
     expand: bool,
-    #[cfg(feature = "accessibility")]
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
 }
 
 impl<Handle> Image<Handle> {
@@ -85,8 +85,8 @@ impl<Handle> Image<Handle> {
             opacity: 1.0,
             scale: 1.0,
             expand: false,
-            #[cfg(feature = "accessibility")]
             accessible_label: None,
+            accessible_description: None,
         }
     }
 
@@ -120,9 +120,14 @@ impl<Handle> Image<Handle> {
     ///
     /// Informative images should have a descriptive label. Decorative
     /// images can omit this method.
-    #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets an accessible description for this image.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
         self
     }
 
@@ -421,10 +426,13 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Image);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
         nodes.push((id, builder));
 
         Some(id)

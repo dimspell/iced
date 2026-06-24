@@ -64,8 +64,8 @@ where
     rotation: Rotation,
     opacity: f32,
     status: Option<Status>,
-    #[cfg(feature = "accessibility")]
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
 }
 
 impl<'a, Theme> Svg<'a, Theme>
@@ -83,8 +83,8 @@ where
             rotation: Rotation::default(),
             opacity: 1.0,
             status: None,
-            #[cfg(feature = "accessibility")]
             accessible_label: None,
+            accessible_description: None,
         }
     }
 
@@ -158,9 +158,14 @@ where
     ///
     /// Informative SVG icons should have a descriptive label. Purely
     /// decorative graphics can omit this method.
-    #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets an accessible description for this SVG image.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
         self
     }
 }
@@ -299,10 +304,13 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Image);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
         nodes.push((id, builder));
 
         Some(id)

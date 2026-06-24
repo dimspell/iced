@@ -614,11 +614,7 @@ where
 
         #[cfg(feature = "accessibility")]
         if tree.accesskit_focused() {
-            crate::focus_ring::draw(
-                renderer,
-                bounds,
-                &crate::focus_ring::Appearance::default(),
-            );
+            crate::focus_ring::draw(renderer, bounds, &crate::focus_ring::Appearance::default());
         }
 
         let style = Catalog::style(

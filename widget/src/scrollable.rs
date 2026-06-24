@@ -557,11 +557,12 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Group);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
         }
+        builder.add_child_action(accesskit::Action::ScrollIntoView);
 
         // Report scroll position
         let state: &State = tree.state.downcast_ref::<State>();
@@ -611,6 +612,7 @@ where
 
         // Handle scroll actions
         let is_scrollable_target = tree.accesskit_node_id() == Some(action.target_node);
+        let target_bounds = tree.find_accesskit_bounds(action.target_node);
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
         let content_bounds = layout
@@ -620,6 +622,44 @@ where
             .unwrap_or_default();
         let max_scroll_x = (content_bounds.width - bounds.width).max(0.0);
         let max_scroll_y = (content_bounds.height - bounds.height).max(0.0);
+
+        if action.action == accesskit::Action::ScrollIntoView {
+            if let Some(target_bounds) = target_bounds {
+                let current_x = state.offset_x.absolute(bounds.width, content_bounds.width);
+                let current_y = state
+                    .offset_y
+                    .absolute(bounds.height, content_bounds.height);
+
+                let target_right = target_bounds.x + target_bounds.width;
+                let target_bottom = target_bounds.y + target_bounds.height;
+                let bounds_right = bounds.x + bounds.width;
+                let bounds_bottom = bounds.y + bounds.height;
+
+                let new_x = if target_bounds.x < bounds.x {
+                    current_x + target_bounds.x - bounds.x
+                } else if target_right > bounds_right {
+                    current_x + target_right - bounds_right
+                } else {
+                    current_x
+                }
+                .clamp(0.0, max_scroll_x);
+
+                let new_y = if target_bounds.y < bounds.y {
+                    current_y + target_bounds.y - bounds.y
+                } else if target_bottom > bounds_bottom {
+                    current_y + target_bottom - bounds_bottom
+                } else {
+                    current_y
+                }
+                .clamp(0.0, max_scroll_y);
+
+                state.offset_x = Offset::Absolute(new_x);
+                state.offset_y = Offset::Absolute(new_y);
+                shell.invalidate_layout();
+                shell.request_redraw();
+                return;
+            }
+        }
 
         if is_scrollable_target {
             match action.action {

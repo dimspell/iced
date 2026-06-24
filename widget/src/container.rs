@@ -333,7 +333,11 @@ where
             builder.add_action(accesskit::Action::Focus);
             builder.add_child_action(accesskit::Action::Focus);
 
-            if tree.state.downcast_ref::<crate::focus_ring::FocusState>().is_focused {
+            if tree
+                .state
+                .downcast_ref::<crate::focus_ring::FocusState>()
+                .is_focused
+            {
                 tree.set_accesskit_focused(true);
             }
         }
@@ -353,7 +357,9 @@ where
     ) {
         if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
-                tree.state.downcast_mut::<crate::focus_ring::FocusState>().is_focused = true;
+                tree.state
+                    .downcast_mut::<crate::focus_ring::FocusState>()
+                    .is_focused = true;
                 shell.request_redraw();
             }
             return;
@@ -423,11 +429,7 @@ where
 
         #[cfg(feature = "accessibility")]
         if self.focusable && tree.accesskit_focused() {
-            crate::focus_ring::draw(
-                renderer,
-                bounds,
-                &crate::focus_ring::Appearance::default(),
-            );
+            crate::focus_ring::draw(renderer, bounds, &crate::focus_ring::Appearance::default());
         }
 
         let style = theme.style(&self.class);

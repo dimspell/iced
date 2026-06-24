@@ -67,10 +67,10 @@ where
     cell_size: f32,
     class: Theme::Class<'a>,
     /// The accessible label for this QR code, exposed to screen readers.
-    #[cfg(feature = "accessibility")]
     accessible_label: String,
+    /// Additional accessible description for this QR code.
+    accessible_description: Option<String>,
     /// The original data encoded in this QR code, exposed to screen readers.
-    #[cfg(feature = "accessibility")]
     encoded_value: Option<String>,
 }
 
@@ -84,9 +84,8 @@ where
             data,
             cell_size: DEFAULT_CELL_SIZE,
             class: Theme::default(),
-            #[cfg(feature = "accessibility")]
             accessible_label: String::from("QR Code"),
-            #[cfg(feature = "accessibility")]
+            accessible_description: None,
             encoded_value: None,
         }
     }
@@ -127,9 +126,14 @@ where
     /// Defaults to "QR Code" if not set. Provide a more descriptive label
     /// such as "QR Code for Example Website" to help screen reader users
     /// understand what the QR code represents.
-    #[cfg(feature = "accessibility")]
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = label.into();
+        self
+    }
+
+    /// Sets an accessible description for this QR code.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
         self
     }
 
@@ -138,7 +142,6 @@ where
     ///
     /// This should be set to the original data string (e.g., a URL or contact
     /// information) that the QR code encodes.
-    #[cfg(feature = "accessibility")]
     pub fn encoded_value(mut self, value: impl Into<String>) -> Self {
         self.encoded_value = Some(value.into());
         self
@@ -254,11 +257,13 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Image);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
-        builder.set_label(self.accessible_label.as_str());
-        if let Some(value) = &self.encoded_value {
-            builder.set_value(value.as_str());
-        }
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            Some(self.accessible_label.as_str()),
+            self.accessible_description.as_deref(),
+            self.encoded_value.as_deref(),
+        );
 
         nodes.push((id, builder));
 

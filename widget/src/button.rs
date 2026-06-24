@@ -82,6 +82,9 @@ where
     height: Length,
     padding: Padding,
     clip: bool,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
     class: Theme::Class<'a>,
     status: Option<Status>,
 }
@@ -117,6 +120,9 @@ where
             height: Length::Fit,
             padding: DEFAULT_PADDING,
             clip: false,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
             class: Theme::default(),
             status: None,
         }
@@ -137,6 +143,24 @@ where
     /// Sets the [`Padding`] of the [`Button`].
     pub fn padding<P: Into<Padding>>(mut self, padding: P) -> Self {
         self.padding = padding.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`Button`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Button`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the accessible value of the [`Button`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -309,7 +333,13 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::Button);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            self.accessible_value.as_deref(),
+        );
 
         if self.on_press.is_none() {
             builder.set_disabled();
@@ -323,7 +353,9 @@ where
 
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
-            builder.set_labelled_by(vec![child_id]);
+            if self.accessible_label.is_none() {
+                builder.set_labelled_by(vec![child_id]);
+            }
         }
 
         if tree.state.downcast_ref::<State>().is_focused {

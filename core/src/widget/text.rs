@@ -282,7 +282,7 @@ where
     #[cfg(feature = "accessibility")]
     fn accessibility(
         &self,
-        _layout: crate::Layout<'_>,
+        layout: crate::Layout<'_>,
         tree: &crate::widget::Tree,
         _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         _id_counter: &mut u64,
@@ -303,6 +303,7 @@ where
         } else {
             accesskit::Node::new(accesskit::Role::Label)
         };
+        crate::accessibility::set_bounds(tree, &mut builder, layout.bounds());
         builder.set_value(text);
 
         _nodes.push((id, builder));

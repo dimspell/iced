@@ -11,8 +11,9 @@
 //! ```
 use iced::widget::pane_grid;
 use iced::widget::{
-    button, checkbox, column, container, pane_grid as pg, progress_bar, qr_code, radio, row,
-    scrollable, slider, table, text, text_input, toggler, tooltip, vertical_slider,
+    button, checkbox, column, combo_box, container, pane_grid as pg, pick_list, progress_bar,
+    qr_code, radio, row, scrollable, slider, table, text, text_editor, text_input, toggler,
+    tooltip, vertical_slider,
 };
 use iced::{Center, Element, Fill, Length};
 
@@ -31,6 +32,9 @@ enum Message {
     SliderChanged(u8),
     VSliderChanged(i32),
     TextInputChanged(String),
+    TextEditorAction(text_editor::Action),
+    PickListSelected(String),
+    ComboBoxSelected(String),
     CounterIncrement,
     CounterDecrement,
 }
@@ -46,6 +50,10 @@ struct App {
     slider: u8,
     vslider: i32,
     text_input: String,
+    editor_content: text_editor::Content,
+    pick_list_selected: Option<String>,
+    combo_box_state: combo_box::State<String>,
+    combo_box_selected: Option<String>,
     counter: i64,
     panes: pane_grid::State<u32>,
     people: Vec<Person>,
@@ -62,6 +70,14 @@ impl App {
             slider: 50,
             vslider: 0,
             text_input: String::new(),
+            editor_content: text_editor::Content::new(),
+            pick_list_selected: Some("Cat".into()),
+            combo_box_state: combo_box::State::new(vec![
+                "Option A".to_string(),
+                "Option B".to_string(),
+                "Option C".to_string(),
+            ]),
+            combo_box_selected: None,
             counter: 0,
             panes,
             people: vec![
@@ -85,6 +101,11 @@ impl App {
             Message::SliderChanged(v) => self.slider = v,
             Message::VSliderChanged(v) => self.vslider = v,
             Message::TextInputChanged(v) => self.text_input = v,
+            Message::TextEditorAction(action) => {
+                self.editor_content.perform(action);
+            }
+            Message::PickListSelected(v) => self.pick_list_selected = Some(v),
+            Message::ComboBoxSelected(v) => self.combo_box_selected = Some(v),
             Message::CounterIncrement => self.counter += 1,
             Message::CounterDecrement => self.counter -= 1,
         }
@@ -96,6 +117,7 @@ impl App {
             self.interactive_section(),
             self.slider_section(),
             self.input_section(),
+            self.selection_section(),
             self.data_section(),
             self.layout_section(),
         ]
@@ -182,9 +204,39 @@ impl App {
                 .on_input(Message::TextInputChanged)
                 .accessible_label("Search query"),
             progress_bar(0.0..=100.0, self.slider as f32).accessible_label("Volume progress"),
+            text_editor(&self.editor_content)
+                .on_action(Message::TextEditorAction)
+                .height(100)
+                .accessible_label("Editor content"),
         ]
         .spacing(12)
         .accessible_label("Text and progress controls")
+        .into()
+    }
+
+    fn selection_section(&self) -> Element<'_, Message> {
+        const PETS: &[&str] = &["Cat", "Dog", "Bird", "Fish"];
+
+        column![
+            text("Selection Controls").heading(2),
+            row![
+                pick_list(self.pick_list_selected.as_deref(), PETS, |s: &&str| s
+                    .to_string(),)
+                .on_select(|s: &str| Message::PickListSelected(s.to_string()))
+                .accessible_label("Favorite pet"),
+                combo_box(
+                    &self.combo_box_state,
+                    "Type a value...",
+                    self.combo_box_selected.as_ref(),
+                    Message::ComboBoxSelected,
+                )
+                .accessible_label("Custom value"),
+            ]
+            .spacing(16)
+            .align_y(Center),
+        ]
+        .spacing(12)
+        .accessible_label("Selection controls")
         .into()
     }
 
@@ -274,6 +326,22 @@ mod tests {
             .collect();
         assert_eq!(sliders.len(), 2, "Should have horizontal + vertical slider");
         assert_eq!(sliders[0].1.label(), Some("Volume"));
+    }
+
+    #[test]
+    fn sliders_support_increment_decrement_actions() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let sliders: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Slider)
+            .collect();
+        assert_eq!(sliders.len(), 2, "Should have horizontal + vertical slider");
+        assert!(sliders[0].1.supports_action(accesskit::Action::Increment));
+        assert!(sliders[0].1.supports_action(accesskit::Action::Decrement));
+        assert!(sliders[0].1.supports_action(accesskit::Action::SetValue));
     }
 
     #[test]

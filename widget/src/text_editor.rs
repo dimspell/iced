@@ -113,6 +113,8 @@ where
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
     accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -140,6 +142,8 @@ where
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
             accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 }
@@ -260,6 +264,8 @@ where
             highlighter_format: to_format,
             last_status: self.last_status,
             accessible_label: self.accessible_label,
+            accessible_description: self.accessible_description,
+            accessible_value: self.accessible_value,
         }
     }
 
@@ -300,6 +306,18 @@ where
         self.accessible_label = Some(label.into());
         self
     }
+
+    /// Sets the accessible description of the [`TextEditor`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value of the [`TextEditor`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
+        self
+    }
 }
 
 struct State<H: Highlighter> {
@@ -309,7 +327,6 @@ struct State<H: Highlighter> {
     highlighter_format_address: usize,
     last_theme: RefCell<Option<String>>,
 }
-
 impl<Highlighter, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for TextEditor<'_, Highlighter, Message, Theme, Renderer>
 where
@@ -625,10 +642,13 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         // Set the text content as the value
-        let text = self.content.text();
+        let text = self
+            .accessible_value
+            .clone()
+            .unwrap_or_else(|| self.content.text());
         if text.is_empty() {
             if let Some(placeholder) = &self.placeholder {
                 builder.set_placeholder(&*placeholder.clone().into_owned());
@@ -641,13 +661,17 @@ where
             builder.set_disabled();
         } else {
             builder.add_action(accesskit::Action::ReplaceSelectedText);
+            builder.add_action(accesskit::Action::SetValue);
         }
 
         builder.add_action(accesskit::Action::Focus);
 
-        if let Some(label) = &self.accessible_label {
-            builder.set_label(label.as_str());
-        }
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
 
         // Track keyboard focus for the accessibility tree
         let state = tree.state.downcast_ref::<State<Highlighter>>();

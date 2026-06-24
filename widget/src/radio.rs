@@ -148,6 +148,9 @@ where
     shaping: text::Shaping,
     wrapping: text::Wrapping,
     font: Option<Renderer::Font>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
 }
@@ -190,9 +193,30 @@ where
             shaping: text::Shaping::default(),
             wrapping: text::Wrapping::default(),
             font: None,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
             class: Theme::default(),
             last_status: None,
         }
+    }
+
+    /// Sets the accessible label of the [`Radio`] button.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Radio`] button.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the accessible value of the [`Radio`] button.
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
+        self
     }
 
     /// Sets the [`widget::Id`] of the [`Radio`] button.
@@ -526,8 +550,17 @@ where
         *id_counter += 1;
 
         let mut builder = accesskit::Node::new(accesskit::Role::RadioButton);
-        builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
-        builder.set_label(self.label.as_str());
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            Some(
+                self.accessible_label
+                    .as_deref()
+                    .unwrap_or(self.label.as_str()),
+            ),
+            self.accessible_description.as_deref(),
+            self.accessible_value.as_deref(),
+        );
 
         if self.is_selected {
             let toggled: accesskit::Toggled = true.into();
