@@ -57,6 +57,11 @@ impl<R: text::Renderer> Input<R> {
         Editor::text(&self.editor)
     }
 
+    /// Returns the current cursor of the [`Input`].
+    pub fn cursor(&self) -> editor::Cursor {
+        self.editor.cursor()
+    }
+
     pub fn placeholder(&self) -> &str {
         self.placeholder.content()
     }

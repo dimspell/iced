@@ -274,7 +274,7 @@ fn text_editor_label() {
     let mut ui =
         simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Description"));
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
+    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert_eq!(node.label(), Some("Description"));
 }
 
@@ -284,7 +284,7 @@ fn text_editor_disabled_when_no_on_edit() {
     let content = text_editor::Content::new();
     let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Bio"));
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
+    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert!(
         node.is_disabled(),
         "TextEditor without on_edit should be disabled"
@@ -305,7 +305,7 @@ fn text_editor_with_on_edit_has_action() {
             .on_action(|_| ()),
     );
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::TextInput).expect("TextInput node (TextEditor)");
+    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert!(
         !node.is_disabled(),
         "TextEditor with on_edit should be enabled"
@@ -332,7 +332,7 @@ fn text_editor_accessible_metadata_and_set_value() {
     let (editor_id, node) = tree
         .nodes
         .iter()
-        .find(|(_, n)| n.role() == Role::TextInput)
+        .find(|(_, n)| n.role() == Role::MultilineTextInput)
         .expect("TextEditor node");
     assert_eq!(node.label(), Some("Bio"));
     assert_eq!(node.description(), Some("Short biography"));

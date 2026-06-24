@@ -663,10 +663,28 @@ where
             let overlay_root_id =
                 overlay.accessibility(renderer, self.bounds, &mut nodes, &mut id_counter);
 
-            // Link overlay root as child of the main tree root
+            // Attach overlay root as child of the widget that owns it
+            // (e.g., an expanded ComboBox) rather than the window root.
+            // This lets screen readers discover menu items as belonging to
+            // the popup button they originated from.
             if let Some(overlay_root_id) = overlay_root_id {
-                if let Some((_, root_node)) = nodes.iter_mut().find(|(id, _)| *id == root) {
-                    root_node.push_child(overlay_root_id);
+                // Scan nodes for an expanded ComboBox to attach the
+                // overlay as its child and set the controls relationship.
+                let popup_parent_id = nodes
+                    .iter()
+                    .rev()
+                    .find(|(_, n)| {
+                        n.role() == accesskit::Role::ComboBox
+                            && n.is_expanded() == Some(true)
+                    })
+                    .map(|(id, _)| *id)
+                    .unwrap_or(root);
+
+                if let Some((_, parent_node)) =
+                    nodes.iter_mut().find(|(id, _)| *id == popup_parent_id)
+                {
+                    parent_node.push_child(overlay_root_id);
+                    parent_node.set_controls(&[overlay_root_id]);
                 }
             }
         }

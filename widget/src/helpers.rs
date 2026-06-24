@@ -722,7 +722,7 @@ where
             *id_counter += 1;
 
             let mut builder = accesskit::Node::new(accesskit::Role::Group);
-            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
             if let Some(content_id) = content_id {
                 builder.push_child(content_id);
             }
@@ -1031,7 +1031,7 @@ where
             *id_counter += 1;
 
             let mut builder = accesskit::Node::new(accesskit::Role::Group);
-            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
             for child_id in &child_ids {
                 builder.push_child(*child_id);
             }

@@ -641,7 +641,7 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
+        let mut builder = accesskit::Node::new(accesskit::Role::MultilineTextInput);
         crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
         // Set the text content as the value
@@ -654,8 +654,45 @@ where
                 builder.set_placeholder(&*placeholder.clone().into_owned());
             }
         } else {
-            builder.set_value(text);
+            builder.set_value(text.as_str());
         }
+
+        // Create TextRun child for text range support, enabling
+        // character-by-character and word-level feedback on macOS VoiceOver.
+        let text_run_id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let char_lengths: Vec<u8> = char_byte_lengths(&text);
+        let word_starts: Vec<u8> = word_start_indices(&text);
+        let mut text_run = accesskit::Node::new(accesskit::Role::TextRun);
+        text_run.set_value(text.as_str());
+        text_run.set_character_lengths(char_lengths.clone().into_boxed_slice());
+        text_run.set_word_starts(word_starts.into_boxed_slice());
+
+        // Convert cursor line/index to character index for text_selection
+        let cursor = self.content.cursor();
+        let cursor_byte = line_col_byte_offset(&text, cursor.position.line, cursor.position.index);
+        let cursor_char = byte_to_char_index(&char_lengths, cursor_byte);
+        let sel_char = cursor
+            .selection
+            .map(|s| {
+                let byte = line_col_byte_offset(&text, s.line, s.index);
+                byte_to_char_index(&char_lengths, byte)
+            })
+            .unwrap_or(cursor_char);
+
+        builder.set_text_selection(accesskit::TextSelection {
+            anchor: accesskit::TextPosition {
+                node: text_run_id,
+                character_index: sel_char,
+            },
+            focus: accesskit::TextPosition {
+                node: text_run_id,
+                character_index: cursor_char,
+            },
+        });
+
+        builder.push_child(text_run_id);
 
         if self.on_edit.is_none() {
             builder.set_disabled();
@@ -680,6 +717,7 @@ where
         }
 
         nodes.push((id, builder));
+        nodes.push((text_run_id, text_run));
 
         Some(id)
     }
@@ -953,4 +991,56 @@ pub fn default(theme: &Theme, status: Status) -> Style {
             ..active
         },
     }
+}
+    }
+}
+
+#[cfg(feature = "accessibility")]
+fn char_byte_lengths(text: &str) -> Vec<u8> {
+    unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
+        .map(|g| g.len() as u8)
+        .collect()
+}
+
+#[cfg(feature = "accessibility")]
+fn word_start_indices(text: &str) -> Vec<u8> {
+    let graphemes: Vec<&str> =
+        unicode_segmentation::UnicodeSegmentation::graphemes(text, true).collect();
+    let mut starts = Vec::new();
+    let mut in_word = false;
+
+    for (i, grapheme) in graphemes.iter().enumerate() {
+        let is_word_char = grapheme.chars().any(|c| c.is_alphanumeric());
+        if is_word_char && !in_word {
+            starts.push(i as u8);
+        }
+        in_word = is_word_char;
+    }
+
+    starts
+}
+
+#[cfg(feature = "accessibility")]
+fn line_col_byte_offset(text: &str, line: usize, index: usize) -> usize {
+    let mut offset = 0;
+    for (i, line_text) in text.lines().enumerate() {
+        if i == line {
+            offset += index;
+            break;
+        }
+        offset += line_text.len() + 1; // +1 for newline character
+    }
+    offset.min(text.len())
+}
+
+#[cfg(feature = "accessibility")]
+fn byte_to_char_index(char_lengths: &[u8], byte_offset: usize) -> usize {
+    let mut accumulated = 0;
+    for (i, &len) in char_lengths.iter().enumerate() {
+        if accumulated >= byte_offset {
+            return i;
+        }
+        accumulated += len as usize;
+    }
+    char_lengths.len()
 }

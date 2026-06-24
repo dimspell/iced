@@ -111,7 +111,7 @@ where
 
             let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
             builder.push_child(body_id);
-            builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
             builder.set_label(label.as_str());
             nodes.push((id, builder));
 

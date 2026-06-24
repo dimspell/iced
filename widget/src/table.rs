@@ -685,7 +685,7 @@ where
 
             let mut row_builder = accesskit::Node::new(Role::TreeItem);
             if let Some(Some(bounds)) = row_bounds.get(row) {
-                row_builder.set_bounds(crate::core::accessibility::rect(*bounds));
+                crate::core::accessibility::set_bounds(tree, &mut row_builder, *bounds);
             }
             row_builder.set_row_index(row);
             row_builder.set_column_index(0);
@@ -703,7 +703,7 @@ where
         *id_counter += 1;
 
         let mut table_builder = accesskit::Node::new(Role::Grid);
-        table_builder.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        crate::core::accessibility::set_bounds(tree, &mut table_builder, layout.bounds());
         if let Some(label) = &self.accessible_label {
             table_builder.set_label(label.as_str());
         }

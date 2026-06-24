@@ -609,8 +609,9 @@ where
         let list_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
 
-        let mut list_node = accesskit::Node::new(accesskit::Role::List);
-        list_node.set_bounds(crate::core::accessibility::rect(layout.bounds()));
+        let mut list_node =
+            accesskit::Node::new(accesskit::Role::MenuListPopup);
+        crate::core::accessibility::set_bounds(tree, &mut list_node, layout.bounds());
         let mut option_ids = Vec::with_capacity(self.options.len());
 
         let text_size: f32 = self.text_size.map(|p| p.0).unwrap_or(16.0);
@@ -624,18 +625,19 @@ where
             let mut option_node = accesskit::Node::new(accesskit::Role::MenuItem);
             option_node.set_label((self.to_string)(option));
             option_node.add_action(accesskit::Action::Click);
+            option_node.add_action(accesskit::Action::Focus);
             option_node.set_selected(self.hovered_option == &Some(i));
 
             // Set bounds so screen readers know where each item sits
             let bounds = layout.bounds();
             let y = bounds.y + option_height * i as f32;
-            let option_bounds = crate::core::accessibility::rect(crate::core::Rectangle {
+            let option_bounds = crate::core::accessibility::non_empty(crate::core::Rectangle {
                 x: bounds.x,
                 y,
                 width: bounds.width,
                 height: option_height,
             });
-            option_node.set_bounds(option_bounds);
+            option_node.set_bounds(crate::core::accessibility::rect(option_bounds));
 
             nodes.push((option_id, option_node));
             list_node.push_child(option_id);
@@ -676,6 +678,18 @@ where
                     shell.publish((self.on_selected)(option.clone()));
                     shell.request_redraw();
                 }
+            }
+        } else if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_ref::<ListState>();
+            let option_node_ids = state.option_node_ids.take();
+            let index = option_node_ids
+                .iter()
+                .position(|id| *id == action.target_node);
+            state.option_node_ids.set(option_node_ids);
+
+            if let Some(index) = index {
+                *self.hovered_option = Some(index);
+                shell.request_redraw();
             }
         }
     }

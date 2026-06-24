@@ -160,7 +160,7 @@ where
         *id_counter += 1;
 
         let mut node = accesskit::Node::new(accesskit::Role::Group);
-        node.set_bounds(crate::accessibility::rect(layout.bounds()));
+        node.set_bounds(crate::accessibility::rect(crate::accessibility::non_empty(layout.bounds())));
         for child_id in child_ids {
             node.push_child(child_id);
         }
