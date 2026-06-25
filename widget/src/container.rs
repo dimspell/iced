@@ -388,7 +388,7 @@ where
         viewport: &Rectangle,
     ) {
         self.content.as_widget_mut().update(
-            tree,
+            &mut tree.children[0],
             event,
             layout.children().next().unwrap(),
             cursor,
@@ -407,7 +407,7 @@ where
         renderer: &Renderer,
     ) -> mouse::Interaction {
         self.content.as_widget().mouse_interaction(
-            tree,
+            &tree.children[0],
             layout.children().next().unwrap(),
             cursor,
             viewport,
@@ -438,7 +438,7 @@ where
             draw_background(renderer, &style, bounds);
 
             self.content.as_widget().draw(
-                tree,
+                &tree.children[0],
                 renderer,
                 theme,
                 &renderer::Style {
