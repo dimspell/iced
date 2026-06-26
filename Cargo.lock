@@ -63,8 +63,6 @@ dependencies = [
 [[package]]
 name = "accesskit_macos"
 version = "0.26.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17cb8b66cef272d48161b02a6317cc2bdd5f98bb0a5e79c68f704a5862aa396b"
 dependencies = [
  "accesskit",
  "accesskit_consumer",
