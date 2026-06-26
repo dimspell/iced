@@ -674,8 +674,7 @@ where
                     .iter()
                     .rev()
                     .find(|(_, n)| {
-                        n.role() == accesskit::Role::ComboBox
-                            && n.is_expanded() == Some(true)
+                        n.role() == accesskit::Role::ComboBox && n.is_expanded() == Some(true)
                     })
                     .map(|(id, _)| *id)
                     .unwrap_or(root);
@@ -683,7 +682,13 @@ where
                 if let Some((_, parent_node)) =
                     nodes.iter_mut().find(|(id, _)| *id == popup_parent_id)
                 {
-                    parent_node.push_child(overlay_root_id);
+                    let mut children = parent_node.children().to_vec();
+
+                    if !children.contains(&overlay_root_id) {
+                        children.push(overlay_root_id);
+                    }
+
+                    parent_node.set_children(children);
                     parent_node.set_controls(&[overlay_root_id]);
                 }
             }

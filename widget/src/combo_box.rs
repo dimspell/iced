@@ -742,7 +742,12 @@ where
 
         // Track keyboard focus for the accessibility tree
         let state = tree.state.downcast_ref::<Internal<T, Renderer>>();
-        if state.editor.input.is_focused() {
+        let is_focused = state.editor.input.is_focused();
+
+        // The popup is considered open while the inner input is focused
+        builder.set_expanded(is_focused);
+
+        if is_focused {
             tree.set_accesskit_focused(true);
         }
 

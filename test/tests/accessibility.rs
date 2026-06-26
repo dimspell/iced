@@ -22,6 +22,46 @@ fn has_non_empty_bounds(node: &accesskit::Node) -> bool {
         .is_some_and(|bounds| bounds.x1 > bounds.x0 && bounds.y1 > bounds.y0)
 }
 
+fn assert_popup_attached_to_expanded_combo_box(tree: &accesskit::TreeUpdate) {
+    let (combo_id, combo_node) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox && node.is_expanded() == Some(true))
+        .expect("Expanded ComboBox node");
+
+    let (popup_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MenuListPopup)
+        .expect("MenuListPopup node");
+
+    let overlay_root_id = combo_node
+        .controls()
+        .first()
+        .copied()
+        .expect("Controlled overlay root");
+
+    let (_, overlay_root_node) = tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == overlay_root_id)
+        .expect("Controlled overlay root node");
+
+    assert!(
+        combo_node.children().contains(&overlay_root_id),
+        "Expanded ComboBox {combo_id:?} should contain overlay root {overlay_root_id:?}"
+    );
+    assert_eq!(
+        combo_node.controls(),
+        &[overlay_root_id],
+        "Expanded ComboBox should expose its overlay root via controls"
+    );
+    assert!(
+        overlay_root_node.children().contains(popup_id),
+        "Overlay root {overlay_root_id:?} should contain popup {popup_id:?}"
+    );
+}
+
 // === ROLES ===
 
 #[test]
@@ -274,7 +314,8 @@ fn text_editor_label() {
     let mut ui =
         simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Description"));
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
+    let node =
+        find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert_eq!(node.label(), Some("Description"));
 }
 
@@ -284,7 +325,8 @@ fn text_editor_disabled_when_no_on_edit() {
     let content = text_editor::Content::new();
     let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).accessible_label("Bio"));
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
+    let node =
+        find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert!(
         node.is_disabled(),
         "TextEditor without on_edit should be disabled"
@@ -305,7 +347,8 @@ fn text_editor_with_on_edit_has_action() {
             .on_action(|_| ()),
     );
     let tree = ui.accessibility_tree();
-    let node = find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
+    let node =
+        find_node(&tree, Role::MultilineTextInput).expect("MultilineTextInput node (TextEditor)");
     assert!(
         !node.is_disabled(),
         "TextEditor with on_edit should be enabled"
@@ -846,6 +889,8 @@ fn picklist_menu_items_visible_when_open() {
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     let items: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
@@ -887,6 +932,8 @@ fn picklist_expand_action_exposes_menu_items() {
     });
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     assert_eq!(
         tree.nodes
             .iter()
@@ -909,6 +956,8 @@ fn picklist_menu_item_click_dispatches_selection() {
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     let (target_id, _) = tree
         .nodes
         .iter()
@@ -1037,6 +1086,8 @@ fn combo_box_menu_items_visible_when_focused() {
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     let items: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
@@ -1075,6 +1126,8 @@ fn combo_box_expand_action_exposes_menu_items() {
     });
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     assert_eq!(
         tree.nodes
             .iter()
@@ -1101,6 +1154,8 @@ fn combo_box_menu_item_click_dispatches_selection() {
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();
+    assert_popup_attached_to_expanded_combo_box(&tree);
+
     let (target_id, _) = tree
         .nodes
         .iter()
@@ -1131,6 +1186,7 @@ fn combo_box_has_popup() {
     let tree = ui.accessibility_tree();
     let node = find_node(&tree, Role::ComboBox).expect("ComboBox node");
     assert_eq!(node.has_popup(), Some(accesskit::HasPopup::Listbox));
+    assert_eq!(node.is_expanded(), Some(false));
 }
 
 // === TABLE ACCESSIBILITY ===
