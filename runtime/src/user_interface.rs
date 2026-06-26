@@ -660,6 +660,7 @@ where
             )
             .map(crate::core::overlay::Nested::new)
         {
+            let overlay_start = nodes.len();
             let overlay_root_id =
                 overlay.accessibility(renderer, self.bounds, &mut nodes, &mut id_counter);
 
@@ -668,16 +669,35 @@ where
             // This lets screen readers discover menu items as belonging to
             // the popup button they originated from.
             if let Some(overlay_root_id) = overlay_root_id {
-                // Scan nodes for an expanded ComboBox to attach the
-                // overlay as its child and set the controls relationship.
-                let popup_parent_id = nodes
+                let overlay_nodes = &nodes[overlay_start..];
+                let has_menu_popup = overlay_nodes
                     .iter()
-                    .rev()
-                    .find(|(_, n)| {
-                        n.role() == accesskit::Role::ComboBox && n.is_expanded() == Some(true)
-                    })
-                    .map(|(id, _)| *id)
-                    .unwrap_or(root);
+                    .any(|(_, n)| n.role() == accesskit::Role::MenuListPopup);
+                let has_tooltip = overlay_nodes
+                    .iter()
+                    .any(|(_, n)| n.role() == accesskit::Role::Tooltip);
+
+                let popup_parent_id = if has_menu_popup {
+                    nodes[..overlay_start]
+                        .iter()
+                        .rev()
+                        .find(|(_, n)| {
+                            n.role() == accesskit::Role::ComboBox && n.is_expanded() == Some(true)
+                        })
+                        .map(|(id, _)| *id)
+                } else if has_tooltip {
+                    nodes[..overlay_start]
+                        .iter()
+                        .rev()
+                        .find(|(_, n)| {
+                            n.has_popup() == Some(accesskit::HasPopup::Menu)
+                                && n.is_expanded() == Some(true)
+                        })
+                        .map(|(id, _)| *id)
+                } else {
+                    None
+                }
+                .unwrap_or(root);
 
                 if let Some((_, parent_node)) =
                     nodes.iter_mut().find(|(id, _)| *id == popup_parent_id)

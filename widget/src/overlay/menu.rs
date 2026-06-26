@@ -609,8 +609,7 @@ where
         let list_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
 
-        let mut list_node =
-            accesskit::Node::new(accesskit::Role::MenuListPopup);
+        let mut list_node = accesskit::Node::new(accesskit::Role::MenuListPopup);
         crate::core::accessibility::set_bounds(tree, &mut list_node, layout.bounds());
         let mut option_ids = Vec::with_capacity(self.options.len());
 

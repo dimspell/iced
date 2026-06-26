@@ -5,8 +5,8 @@ use iced_test::core::{Event, Theme, keyboard};
 use iced_test::renderer::Renderer;
 use iced_test::simulator;
 use iced_widget::{
-    button, checkbox, column, container, pick_list, progress_bar, radio, row, scrollable, slider,
-    text, text_input, toggler, tooltip, vertical_slider,
+    Space, button, checkbox, column, container, pick_list, progress_bar, radio, row, scrollable,
+    slider, text, text_input, toggler, tooltip, vertical_slider,
 }; // for menu overlay positioning tests
 
 /// Find a node in the tree with the given role.
@@ -59,6 +59,53 @@ fn assert_popup_attached_to_expanded_combo_box(tree: &accesskit::TreeUpdate) {
     assert!(
         overlay_root_node.children().contains(popup_id),
         "Overlay root {overlay_root_id:?} should contain popup {popup_id:?}"
+    );
+}
+
+fn assert_tooltip_attached_to_expanded_owner(tree: &accesskit::TreeUpdate) {
+    let (owner_id, owner_node) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| {
+            node.has_popup() == Some(accesskit::HasPopup::Menu) && node.is_expanded() == Some(true)
+        })
+        .expect("Expanded tooltip owner node");
+
+    let (tooltip_id, tooltip_node) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::Tooltip)
+        .expect("Tooltip node");
+
+    let overlay_root_id = owner_node.controls()[0];
+    let (_, overlay_root_node) = tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == overlay_root_id)
+        .expect("Controlled tooltip overlay root node");
+
+    assert!(
+        owner_node.children().contains(&overlay_root_id),
+        "Tooltip owner {owner_id:?} should contain overlay root {overlay_root_id:?}"
+    );
+    assert!(
+        overlay_root_node.children().contains(tooltip_id),
+        "Overlay root {overlay_root_id:?} should contain tooltip {tooltip_id:?}"
+    );
+    assert!(
+        has_non_empty_bounds(tooltip_node),
+        "Tooltip node should have non-empty bounds"
+    );
+    assert!(
+        !tooltip_node.children().is_empty(),
+        "Tooltip node should contain tooltip content"
+    );
+    assert!(
+        tooltip_node
+            .children()
+            .iter()
+            .all(|child_id| tree.nodes.iter().any(|(id, _)| id == child_id)),
+        "Tooltip content children should be present in the tree"
     );
 }
 
@@ -1067,8 +1114,39 @@ fn tooltip_has_popup() {
         .find(|(_, n)| n.has_popup() == Some(accesskit::HasPopup::Menu))
         .map(|(_, n)| n)
         .expect("Tooltip popup node");
-    // Should signal to AT that a popup (tooltip) exists
+    assert_eq!(node.role(), Role::Group);
     assert_eq!(node.has_popup(), Some(accesskit::HasPopup::Menu));
+    assert_eq!(node.is_expanded(), Some(false));
+    assert!(
+        node.controls().is_empty(),
+        "Closed tooltip should not control an overlay root"
+    );
+}
+
+#[test]
+fn tooltip_open_state_attaches_overlay_to_owner() {
+    let mut ui = simulator::<(), Theme, Renderer>(tooltip(
+        Space::new().width(100).height(20),
+        text("Tooltip text"),
+        tooltip::Position::Top,
+    ));
+
+    let closed_tree = ui.accessibility_tree();
+    let owner_bounds = closed_tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.has_popup() == Some(accesskit::HasPopup::Menu))
+        .and_then(|(_, node)| node.bounds())
+        .expect("Tooltip owner bounds");
+    let cursor_position = Point::new(
+        ((owner_bounds.x0 + owner_bounds.x1) / 2.0) as f32,
+        ((owner_bounds.y0 + owner_bounds.y1) / 2.0) as f32,
+    );
+    ui.point_at(cursor_position);
+    let _ = ui.snapshot(&Theme::Light);
+
+    let tree = ui.accessibility_tree();
+    assert_tooltip_attached_to_expanded_owner(&tree);
 }
 
 // === COMBOBOX DROPDOWN MENU ITEMS ===

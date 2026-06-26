@@ -143,6 +143,7 @@ pub(crate) struct EventGenerator {
     text_changed: HashSet<NodeId>,
     selected_rows_changed: HashSet<NodeId>,
     created: HashSet<NodeId>,
+    help_tag_created: HashSet<NodeId>,
     layout_changed: HashSet<NodeId>,
     moved: HashSet<NodeId>,
     resized: HashSet<NodeId>,
@@ -156,6 +157,7 @@ impl EventGenerator {
             text_changed: HashSet::new(),
             selected_rows_changed: HashSet::new(),
             created: HashSet::new(),
+            help_tag_created: HashSet::new(),
             layout_changed: HashSet::new(),
             moved: HashSet::new(),
             resized: HashSet::new(),
@@ -174,6 +176,7 @@ impl EventGenerator {
             text_changed: HashSet::new(),
             selected_rows_changed: HashSet::new(),
             created: HashSet::new(),
+            help_tag_created: HashSet::new(),
             layout_changed: HashSet::new(),
             moved: HashSet::new(),
             resized: HashSet::new(),
@@ -205,6 +208,20 @@ impl EventGenerator {
             self.events.push(QueuedEvent::Generic {
                 node_id: id,
                 notification: unsafe { NSAccessibilityCreatedNotification },
+            });
+        }
+    }
+
+    fn enqueue_help_tag_created_if_needed(&mut self, node: &Node) {
+        if node.role() != Role::Tooltip {
+            return;
+        }
+
+        let id = node.id();
+        if self.help_tag_created.insert(id) {
+            self.events.push(QueuedEvent::Generic {
+                node_id: id,
+                notification: unsafe { NSAccessibilityHelpTagCreatedNotification },
             });
         }
     }
@@ -308,6 +325,7 @@ impl TreeChangeHandler for EventGenerator {
             return;
         }
         self.enqueue_created(node);
+        self.enqueue_help_tag_created_if_needed(node);
         self.enqueue_layout_changed_for_parent(node);
         if let Some(true) = node.is_selected() {
             self.enqueue_selected_rows_change_if_needed(node);
@@ -341,6 +359,7 @@ impl TreeChangeHandler for EventGenerator {
         let node_id = new_node.id();
         if old_filter_result != FilterResult::Include {
             self.enqueue_created(new_node);
+            self.enqueue_help_tag_created_if_needed(new_node);
             self.enqueue_layout_changed_for_parent(new_node);
         }
         if old_filter_result == FilterResult::Include {
@@ -454,6 +473,7 @@ mod tests {
     const BUTTON: LocalNodeId = LocalNodeId(1);
     const BUTTON_2: LocalNodeId = LocalNodeId(2);
     const TEXT_RUN: LocalNodeId = LocalNodeId(3);
+    const TOOLTIP: LocalNodeId = LocalNodeId(4);
 
     fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
         Rect {
@@ -473,6 +493,13 @@ mod tests {
 
     fn button(label: &str, bounds: Rect) -> NodeData {
         let mut node = NodeData::new(Role::Button);
+        node.set_label(label);
+        node.set_bounds(bounds);
+        node
+    }
+
+    fn tooltip(label: &str, bounds: Rect) -> NodeData {
+        let mut node = NodeData::new(Role::Tooltip);
         node.set_label(label);
         node.set_bounds(bounds);
         node
@@ -557,6 +584,97 @@ mod tests {
             &generator,
             unsafe { NSAccessibilityCreatedNotification }
         ));
+        assert_eq!(
+            notification_count(
+                &generator,
+                unsafe { NSAccessibilityHelpTagCreatedNotification }
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn tooltip_added_emits_help_tag_created_notification() {
+        let mut tree = initial_tree(vec![
+            (ROOT, root([BUTTON])),
+            (BUTTON, button("One", rect(0.0, 0.0, 20.0, 20.0))),
+        ]);
+
+        let generator = update_tree(
+            &mut tree,
+            vec![
+                (ROOT, root([BUTTON, TOOLTIP])),
+                (TOOLTIP, tooltip("Help", rect(30.0, 0.0, 80.0, 20.0))),
+            ],
+        );
+
+        assert!(has_notification(
+            &generator,
+            unsafe { NSAccessibilityHelpTagCreatedNotification }
+        ));
+    }
+
+    #[test]
+    fn tooltip_filtered_in_emits_help_tag_created_notification() {
+        let mut hidden_tooltip = tooltip("Help", rect(30.0, 0.0, 80.0, 20.0));
+        hidden_tooltip.set_hidden();
+
+        let mut tree = initial_tree(vec![
+            (ROOT, root([TOOLTIP])),
+            (TOOLTIP, hidden_tooltip),
+        ]);
+
+        let generator = update_tree(
+            &mut tree,
+            vec![(TOOLTIP, tooltip("Help", rect(30.0, 0.0, 80.0, 20.0)))],
+        );
+
+        assert!(has_notification(
+            &generator,
+            unsafe { NSAccessibilityHelpTagCreatedNotification }
+        ));
+    }
+
+    #[test]
+    fn hidden_tooltip_does_not_emit_help_tag_created_notification() {
+        let mut tree = initial_tree(vec![(ROOT, root([]))]);
+
+        let mut hidden_tooltip = tooltip("Help", rect(30.0, 0.0, 80.0, 20.0));
+        hidden_tooltip.set_hidden();
+
+        let generator = update_tree(
+            &mut tree,
+            vec![(ROOT, root([TOOLTIP])), (TOOLTIP, hidden_tooltip)],
+        );
+
+        assert_eq!(
+            notification_count(
+                &generator,
+                unsafe { NSAccessibilityHelpTagCreatedNotification }
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn tooltip_geometry_update_does_not_emit_help_tag_created_notification() {
+        let mut tree = initial_tree(vec![
+            (ROOT, root([TOOLTIP])),
+            (TOOLTIP, tooltip("Help", rect(30.0, 0.0, 80.0, 20.0))),
+        ]);
+
+        let generator = update_tree(
+            &mut tree,
+            vec![(TOOLTIP, tooltip("Help", rect(40.0, 10.0, 100.0, 30.0)))],
+        );
+
+        assert_eq!(
+            notification_count(
+                &generator,
+                unsafe { NSAccessibilityHelpTagCreatedNotification }
+            ),
+            0
+        );
     }
 
     #[test]

@@ -331,12 +331,7 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let role = if self.accessible_label.is_some() {
-            accesskit::Role::Group
-        } else {
-            accesskit::Role::GenericContainer
-        };
-        let mut builder = accesskit::Node::new(role);
+        let mut builder = accesskit::Node::new(accesskit::Role::Group);
         crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
         if let Some(child_id) = child_id {
             builder.push_child(child_id);
