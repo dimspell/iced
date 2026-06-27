@@ -141,10 +141,14 @@ mod accessibility_handlers {
         }
     }
 
-    pub(super) struct Action;
+    pub(super) struct Action {
+        pub(super) waker: crate::core::shell::Waker,
+    }
+
     impl ActionHandler for Action {
         fn do_action(&mut self, request: ActionRequest) {
             PENDING_ACTIONS.lock().unwrap().push_back(request);
+            self.waker.wake();
         }
     }
 
@@ -153,6 +157,35 @@ mod accessibility_handlers {
         fn deactivate_accessibility(&mut self) {
             // No cleanup needed — the adapter is reused if the screen reader
             // re-activates via ActivationHandler.
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::core::accessibility::accesskit::{Action as AccessKitAction, NodeId, TreeId};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        #[test]
+        fn accessibility_action_wakes_event_loop() {
+            let was_woken = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&was_woken);
+            let mut handler = Action {
+                waker: crate::core::shell::Waker::new(move || {
+                    flag.store(true, Ordering::SeqCst);
+                }),
+            };
+
+            handler.do_action(ActionRequest {
+                action: AccessKitAction::Increment,
+                target_tree: TreeId::ROOT,
+                target_node: NodeId(1),
+                data: None,
+            });
+
+            assert!(was_woken.load(Ordering::SeqCst));
+            assert_eq!(drain_actions().len(), 1);
         }
     }
 }
@@ -245,6 +278,9 @@ where
         error: Option<Error>,
         system_theme: Option<oneshot::Sender<theme::Mode>>,
 
+        #[cfg(feature = "accessibility")]
+        accessibility_waker: core::shell::Waker,
+
         #[cfg(target_arch = "wasm32")]
         canvas: Option<web_sys::HtmlCanvasElement>,
     }
@@ -257,6 +293,15 @@ where
         receiver: control_receiver,
         error: None,
         system_theme: Some(system_theme_sender),
+
+        #[cfg(feature = "accessibility")]
+        accessibility_waker: {
+            let proxy = proxy.clone();
+
+            core::shell::Waker::new(move || {
+                proxy.send_action(Action::Window(runtime::window::Action::RedrawAll));
+            })
+        },
 
         #[cfg(target_arch = "wasm32")]
         canvas: None,
@@ -489,7 +534,9 @@ where
                                         event_loop,
                                         &window,
                                         accessibility_handlers::Activation,
-                                        accessibility_handlers::Action,
+                                        accessibility_handlers::Action {
+                                            waker: self.accessibility_waker.clone(),
+                                        },
                                         accessibility_handlers::Deactivation,
                                     );
                                     SendAdapter::from(adapter)
