@@ -1215,9 +1215,23 @@ fn picklist_menu_item_click_dispatches_selection() {
             .on_select(|s| s.to_string()),
     );
 
-    // Open the dropdown
-    ui.point_at(Point::new(10.0, 10.0));
-    let _ = ui.simulate(iced_test::simulator::click());
+    let tree = ui.accessibility_tree();
+    let combo_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, node)| {
+            assert!(node.supports_action(Action::Click));
+            *id
+        })
+        .expect("PickList ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
 
     let tree = ui.accessibility_tree();
     assert_popup_attached_to_expanded_combo_box(&tree);
@@ -1235,6 +1249,23 @@ fn picklist_menu_item_click_dispatches_selection() {
         data: None,
     };
     ui.accessibility_action(&request);
+
+    let tree = ui.accessibility_tree();
+    let combo = tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == combo_id)
+        .map(|(_, node)| node)
+        .expect("PickList ComboBox node after selection");
+    assert_eq!(combo.is_expanded(), Some(false));
+    assert_eq!(tree.focus, combo_id);
+    assert!(
+        tree.nodes
+            .iter()
+            .all(|(_, node)| node.role() != Role::MenuItem),
+        "Menu items should be removed after selection"
+    );
+
     let messages: Vec<String> = ui.into_messages().collect();
     assert_eq!(
         messages,

@@ -764,10 +764,12 @@ where
 
         if self.on_select.is_none() {
             builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::Click);
+            builder.add_action(accesskit::Action::Expand);
+            builder.add_action(accesskit::Action::Collapse);
         }
 
-        builder.add_action(accesskit::Action::Expand);
-        builder.add_action(accesskit::Action::Collapse);
         builder.add_action(accesskit::Action::Focus);
 
         // Track keyboard focus for the accessibility tree
@@ -846,6 +848,7 @@ where
                 &self.to_string,
                 |option| {
                     state.is_open = false;
+                    state.is_focused = true;
 
                     (on_select)(option)
                 },
