@@ -1540,13 +1540,13 @@ fn table_roles_and_indices() {
     let row_nodes: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
-        .filter(|(_, n)| n.role() == Role::TreeItem)
+        .filter(|(_, n)| n.role() == Role::Row)
         .map(|(_, n)| n)
         .collect();
     assert_eq!(
         row_nodes.len(),
         3,
-        "Should have 3 TreeItem row nodes (1 header + 2 data)"
+        "Should have 3 Row nodes (1 header + 2 data)"
     );
     assert!(row_nodes.iter().all(|node| has_non_empty_bounds(node)));
     assert_eq!(row_nodes[0].row_index(), Some(0));
@@ -1574,6 +1574,63 @@ fn table_roles_and_indices() {
     assert_eq!(cells[0].label(), Some("Alice"));
     assert_eq!(cells[0].row_index(), Some(1));
     assert_eq!(cells[0].column_index(), Some(0));
+}
+
+#[test]
+fn table_selection_state_and_metadata() {
+    use iced_widget::table;
+
+    let columns = [
+        table::column(text("Name"), |(name, _): (String, String)| text(name)),
+        table::column(text("Role"), |(_, role): (String, String)| text(role)),
+    ];
+    let rows = vec![
+        ("Alice".to_string(), "Admin".to_string()),
+        ("Bob".to_string(), "Editor".to_string()),
+    ];
+    let mut ui = simulator::<(), Theme, Renderer>(
+        table::table(columns, rows)
+            .selected_rows([1])
+            .selected_cells([(0, 1)])
+            .selected_columns([0]),
+    );
+
+    let tree = ui.accessibility_tree();
+    let grid = find_node(&tree, Role::Grid).expect("Grid node");
+    assert_eq!(grid.row_count(), Some(3));
+    assert_eq!(grid.column_count(), Some(2));
+
+    let rows: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::Row)
+        .map(|(_, node)| node)
+        .collect();
+    assert_eq!(rows[0].is_selected(), None);
+    assert_eq!(rows[1].is_selected(), Some(false));
+    assert_eq!(rows[2].is_selected(), Some(true));
+
+    let headers: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::ColumnHeader)
+        .map(|(_, node)| node)
+        .collect();
+    assert_eq!(headers[0].is_selected(), Some(true));
+    assert_eq!(headers[1].is_selected(), Some(false));
+
+    let cells: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::Cell)
+        .map(|(_, node)| node)
+        .collect();
+    assert_eq!(cells[0].is_selected(), Some(false));
+    assert_eq!(cells[1].is_selected(), Some(true));
+    assert_eq!(cells[2].is_selected(), Some(false));
+    assert_eq!(cells[3].is_selected(), Some(false));
+    assert_eq!(cells[1].row_index(), Some(1));
+    assert_eq!(cells[1].column_index(), Some(1));
 }
 
 // === ACTION DISPATCH FOR CHECKBOX / TOGGLER / RADIO ===

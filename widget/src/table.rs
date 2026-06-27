@@ -61,6 +61,9 @@ where
     separator_x: f32,
     separator_y: f32,
     accessible_label: Option<String>,
+    selected_rows: Option<Vec<usize>>,
+    selected_cells: Option<Vec<(usize, usize)>>,
+    selected_columns: Option<Vec<usize>>,
     class: Theme::Class<'a>,
 }
 
@@ -132,6 +135,9 @@ where
             separator_x: 1.0,
             separator_y: 1.0,
             accessible_label: None,
+            selected_rows: None,
+            selected_cells: None,
+            selected_columns: None,
             class: Theme::default(),
         }
     }
@@ -183,6 +189,31 @@ where
     /// Sets the accessible label of the [`Table`].
     pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
         self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Marks data rows as selectable and identifies the selected rows.
+    ///
+    /// Row indices are zero-based and do not include the header row.
+    pub fn selected_rows(mut self, rows: impl IntoIterator<Item = usize>) -> Self {
+        self.selected_rows = Some(rows.into_iter().collect());
+        self
+    }
+
+    /// Marks data cells as selectable and identifies the selected cells.
+    ///
+    /// Each `(row, column)` index is zero-based and row indices do not include
+    /// the header row.
+    pub fn selected_cells(mut self, cells: impl IntoIterator<Item = (usize, usize)>) -> Self {
+        self.selected_cells = Some(cells.into_iter().collect());
+        self
+    }
+
+    /// Marks columns as selectable and identifies the selected columns.
+    ///
+    /// Column indices are zero-based.
+    pub fn selected_columns(mut self, columns: impl IntoIterator<Item = usize>) -> Self {
+        self.selected_columns = Some(columns.into_iter().collect());
         self
     }
 }
@@ -661,6 +692,13 @@ where
                     wrapper.set_column_index(col);
                     wrapper.set_row_span(1);
                     wrapper.set_column_span(1);
+                    if is_header_row {
+                        if let Some(selected_columns) = &self.selected_columns {
+                            wrapper.set_selected(selected_columns.contains(&col));
+                        }
+                    } else if let Some(selected_cells) = &self.selected_cells {
+                        wrapper.set_selected(selected_cells.contains(&(row - 1, col)));
+                    }
                     nodes.push((wrapper_id, wrapper));
 
                     if let Some(last_row) = row_cell_ids.last_mut() {
@@ -683,13 +721,18 @@ where
             let row_id = accesskit::NodeId(*id_counter);
             *id_counter += 1;
 
-            let mut row_builder = accesskit::Node::new(Role::TreeItem);
+            let mut row_builder = accesskit::Node::new(Role::Row);
             if let Some(Some(bounds)) = row_bounds.get(row) {
                 crate::core::accessibility::set_bounds(tree, &mut row_builder, *bounds);
             }
             row_builder.set_row_index(row);
             row_builder.set_column_index(0);
             row_builder.set_column_span(columns);
+            if row > 0
+                && let Some(selected_rows) = &self.selected_rows
+            {
+                row_builder.set_selected(selected_rows.contains(&(row - 1)));
+            }
 
             for cell_id in row_cells {
                 row_builder.push_child(*cell_id);
@@ -712,6 +755,21 @@ where
         }
         table_builder.set_row_count(rows);
         table_builder.set_column_count(columns);
+        if self
+            .selected_rows
+            .as_ref()
+            .is_some_and(|rows| rows.len() > 1)
+            || self
+                .selected_cells
+                .as_ref()
+                .is_some_and(|cells| cells.len() > 1)
+            || self
+                .selected_columns
+                .as_ref()
+                .is_some_and(|columns| columns.len() > 1)
+        {
+            table_builder.set_multiselectable();
+        }
         nodes.push((table_id, table_builder));
 
         Some(table_id)

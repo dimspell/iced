@@ -149,6 +149,8 @@ pub(crate) struct EventGenerator {
     events: Vec<QueuedEvent>,
     text_changed: HashSet<NodeId>,
     selected_rows_changed: HashSet<NodeId>,
+    selected_cells_changed: HashSet<NodeId>,
+    selected_columns_changed: HashSet<NodeId>,
     created: HashSet<NodeId>,
     help_tag_created: HashSet<NodeId>,
     layout_changed: HashSet<NodeId>,
@@ -163,6 +165,8 @@ impl EventGenerator {
             events: Vec::new(),
             text_changed: HashSet::new(),
             selected_rows_changed: HashSet::new(),
+            selected_cells_changed: HashSet::new(),
+            selected_columns_changed: HashSet::new(),
             created: HashSet::new(),
             help_tag_created: HashSet::new(),
             layout_changed: HashSet::new(),
@@ -182,6 +186,8 @@ impl EventGenerator {
             events: Vec::new(),
             text_changed: HashSet::new(),
             selected_rows_changed: HashSet::new(),
+            selected_cells_changed: HashSet::new(),
+            selected_columns_changed: HashSet::new(),
             created: HashSet::new(),
             help_tag_created: HashSet::new(),
             layout_changed: HashSet::new(),
@@ -302,25 +308,58 @@ impl EventGenerator {
         }
     }
 
-    fn enqueue_selected_rows_change_if_needed_parent(&mut self, node: Node) {
-        let id = node.id();
-        if self.selected_rows_changed.contains(&id) {
-            return;
-        }
-        self.events.push(QueuedEvent::Generic {
-            node_id: id,
-            notification: unsafe { NSAccessibilitySelectedRowsChangedNotification },
+    fn enqueue_selection_change_if_needed(&mut self, node: &Node) {
+        let grid = node.filtered_parent(&|parent| match filter(parent) {
+            FilterResult::Include
+                if matches!(
+                    parent.role(),
+                    Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+                ) =>
+            {
+                FilterResult::Include
+            }
+            FilterResult::Include => FilterResult::ExcludeNode,
+            result => result,
         });
-        self.selected_rows_changed.insert(id);
-    }
 
-    fn enqueue_selected_rows_change_if_needed(&mut self, node: &Node) {
-        let wrapper = NodeWrapper(node);
-        if !wrapper.is_item_like() {
+        let Some(container) = grid else {
+            let wrapper = NodeWrapper(node);
+            if !wrapper.is_item_like() {
+                return;
+            }
+            let Some(container) = node.selection_container(&filter) else {
+                return;
+            };
+            if self.selected_rows_changed.insert(container.id()) {
+                self.events.push(QueuedEvent::Generic {
+                    node_id: container.id(),
+                    notification: unsafe { NSAccessibilitySelectedRowsChangedNotification },
+                });
+            }
             return;
-        }
-        if let Some(node) = node.selection_container(&filter) {
-            self.enqueue_selected_rows_change_if_needed_parent(node);
+        };
+
+        let (changed, notification) = match node.role() {
+            Role::Row | Role::TreeItem => (
+                &mut self.selected_rows_changed,
+                unsafe { NSAccessibilitySelectedRowsChangedNotification },
+            ),
+            Role::Cell | Role::GridCell => (
+                &mut self.selected_cells_changed,
+                unsafe { NSAccessibilitySelectedCellsChangedNotification },
+            ),
+            Role::ColumnHeader => (
+                &mut self.selected_columns_changed,
+                unsafe { NSAccessibilitySelectedColumnsChangedNotification },
+            ),
+            _ => return,
+        };
+
+        if changed.insert(container.id()) {
+            self.events.push(QueuedEvent::Generic {
+                node_id: container.id(),
+                notification,
+            });
         }
     }
 }
@@ -335,7 +374,7 @@ impl TreeChangeHandler for EventGenerator {
         self.enqueue_help_tag_created_if_needed(node);
         self.enqueue_layout_changed_for_parent(node);
         if let Some(true) = node.is_selected() {
-            self.enqueue_selected_rows_change_if_needed(node);
+            self.enqueue_selection_change_if_needed(node);
         }
         if node.value().is_some() && node.live() != Live::Off {
             self.events
@@ -351,7 +390,7 @@ impl TreeChangeHandler for EventGenerator {
         let new_filter_result = filter(new_node);
         if new_filter_result != FilterResult::Include {
             if old_filter_result == FilterResult::Include && old_node.is_selected() == Some(true) {
-                self.enqueue_selected_rows_change_if_needed(old_node);
+                self.enqueue_selection_change_if_needed(old_node);
             }
             if old_filter_result == FilterResult::Include {
                 self.enqueue_layout_changed_for_parent(old_node);
@@ -452,7 +491,7 @@ impl TreeChangeHandler for EventGenerator {
         if new_node.is_selected() != old_node.is_selected()
             || (old_filter_result != FilterResult::Include && new_node.is_selected() == Some(true))
         {
-            self.enqueue_selected_rows_change_if_needed(new_node);
+            self.enqueue_selection_change_if_needed(new_node);
         }
     }
 
@@ -468,7 +507,7 @@ impl TreeChangeHandler for EventGenerator {
     fn node_removed(&mut self, node: &Node) {
         self.insert_text_change_if_needed(node);
         if let Some(true) = node.is_selected() {
-            self.enqueue_selected_rows_change_if_needed(node);
+            self.enqueue_selection_change_if_needed(node);
         }
         if filter(node) == FilterResult::Include {
             self.enqueue_layout_changed_for_parent(node);
@@ -872,6 +911,84 @@ mod tests {
             &generator,
             unsafe { NSAccessibilitySelectedTextChangedNotification }
         ));
+    }
+
+    #[test]
+    fn grid_selection_changes_emit_role_specific_notifications() {
+        let mut grid = NodeData::new(Role::Grid);
+        grid.set_children([BUTTON_2, TEXT_RUN, TOOLTIP]);
+
+        let mut row = NodeData::new(Role::Row);
+        row.set_selected(false);
+        let mut cell = NodeData::new(Role::Cell);
+        cell.set_selected(false);
+        let mut column = NodeData::new(Role::ColumnHeader);
+        column.set_selected(false);
+
+        let mut tree = initial_tree(vec![
+            (ROOT, root([BUTTON])),
+            (BUTTON, grid),
+            (BUTTON_2, row.clone()),
+            (TEXT_RUN, cell.clone()),
+            (TOOLTIP, column.clone()),
+        ]);
+
+        row.set_selected(true);
+        cell.set_selected(true);
+        column.set_selected(true);
+        let generator = update_tree(
+            &mut tree,
+            vec![(BUTTON_2, row), (TEXT_RUN, cell), (TOOLTIP, column)],
+        );
+
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedRowsChangedNotification
+            }),
+            1
+        );
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedCellsChangedNotification
+            }),
+            1
+        );
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedColumnsChangedNotification
+            }),
+            1
+        );
+
+        let mut row = NodeData::new(Role::Row);
+        row.set_selected(false);
+        let mut cell = NodeData::new(Role::Cell);
+        cell.set_selected(false);
+        let mut column = NodeData::new(Role::ColumnHeader);
+        column.set_selected(false);
+        let generator = update_tree(
+            &mut tree,
+            vec![(BUTTON_2, row), (TEXT_RUN, cell), (TOOLTIP, column)],
+        );
+
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedRowsChangedNotification
+            }),
+            1
+        );
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedCellsChangedNotification
+            }),
+            1
+        );
+        assert_eq!(
+            notification_count(&generator, unsafe {
+                NSAccessibilitySelectedColumnsChangedNotification
+            }),
+            1
+        );
     }
 
     #[test]

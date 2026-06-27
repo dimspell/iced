@@ -27,7 +27,10 @@ use objc2_foundation::{
     NSMutableDictionary, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSRange, NSRect, NSString,
     NSURL, ns_string,
 };
-use std::rc::{Rc, Weak};
+use std::{
+    collections::VecDeque,
+    rc::{Rc, Weak},
+};
 
 use crate::{context::Context, filters::filter, util::*};
 
@@ -353,11 +356,15 @@ impl NodeWrapper<'_> {
     }
 
     fn is_container_with_selectable_children(&self) -> bool {
-        self.0.is_container_with_selectable_children() && self.0.role() != Role::TabList
+        self.0.role() == Role::Table
+            || (self.0.is_container_with_selectable_children() && self.0.role() != Role::TabList)
     }
 
     pub(crate) fn is_item_like(&self) -> bool {
-        self.0.is_item_like() && self.0.role() != Role::Tab
+        matches!(
+            self.0.role(),
+            Role::Row | Role::Cell | Role::GridCell | Role::ColumnHeader
+        ) || (self.0.is_item_like() && self.0.role() != Role::Tab)
     }
 }
 
@@ -1108,7 +1115,8 @@ declare_class!(
                     return None;
                 }
                 let platform_nodes = node
-                    .items(filter)
+                    .filtered_children(&filter)
+                    .filter(|child| matches!(child.role(), Role::Row | Role::TreeItem))
                     .map(|child| context.get_or_create_platform_node(child.id()))
                     .collect::<Vec<Id<PlatformNode>>>();
                 Some(NSArray::from_vec(platform_nodes))
@@ -1124,13 +1132,29 @@ declare_class!(
                     return None;
                 }
                 let platform_nodes = node
-                    .items(filter)
+                    .filtered_children(&filter)
+                    .filter(|item| matches!(item.role(), Role::Row | Role::TreeItem))
                     .filter(|item| item.is_selected() == Some(true))
-                    .map(|child| context.get_or_create_platform_node(child.id()))
+                    .map(|item| context.get_or_create_platform_node(item.id()))
                     .collect::<Vec<Id<PlatformNode>>>();
                 Some(NSArray::from_vec(platform_nodes))
             })
             .flatten()
+        }
+
+        #[method_id(accessibilityColumns)]
+        fn columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.table_descendants(&[Role::ColumnHeader], false)
+        }
+
+        #[method_id(accessibilitySelectedColumns)]
+        fn selected_columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.table_descendants(&[Role::ColumnHeader], true)
+        }
+
+        #[method_id(accessibilitySelectedCells)]
+        fn selected_cells(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.table_descendants(&[Role::Cell, Role::GridCell], true)
         }
 
         #[method(accessibilityPerformPick)]
@@ -1264,10 +1288,13 @@ declare_class!(
                 }
                 if selector == sel!(isAccessibilitySelected) {
                     let wrapper = NodeWrapper(node);
-                    return wrapper.is_item_like();
+                    return wrapper.is_item_like() && node.is_selectable();
                 }
                 if selector == sel!(accessibilityRows)
                     || selector == sel!(accessibilitySelectedRows)
+                    || selector == sel!(accessibilityColumns)
+                    || selector == sel!(accessibilitySelectedColumns)
+                    || selector == sel!(accessibilitySelectedCells)
                 {
                     let wrapper = NodeWrapper(node);
                     return wrapper.is_container_with_selectable_children()
@@ -1357,6 +1384,37 @@ impl PlatformNode {
                 .filtered_children(filter)
                 .map(|child| context.get_or_create_platform_node(child.id()))
                 .collect::<Vec<Id<PlatformNode>>>();
+            NSArray::from_vec(platform_nodes)
+        })
+    }
+
+    fn table_descendants(
+        &self,
+        roles: &[Role],
+        selected_only: bool,
+    ) -> Option<Id<NSArray<PlatformNode>>> {
+        self.resolve_with_context(|node, _, context| {
+            if !matches!(
+                node.role(),
+                Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+            ) {
+                return NSArray::from_vec(Vec::new());
+            }
+
+            let mut descendants = VecDeque::from([*node]);
+            let mut platform_nodes = Vec::new();
+
+            while let Some(parent) = descendants.pop_front() {
+                for child in parent.filtered_children(&filter) {
+                    if roles.contains(&child.role())
+                        && (!selected_only || child.is_selected() == Some(true))
+                    {
+                        platform_nodes.push(context.get_or_create_platform_node(child.id()));
+                    }
+                    descendants.push_back(child);
+                }
+            }
+
             NSArray::from_vec(platform_nodes)
         })
     }
