@@ -94,6 +94,8 @@ where
                 ime_state: None,
                 #[cfg(feature = "accessibility")]
                 accessibility_adapter: None,
+                #[cfg(feature = "accessibility")]
+                accessibility_value_update_at: None,
             },
         );
 
@@ -194,6 +196,9 @@ where
 
     #[cfg(feature = "accessibility")]
     pub accessibility_adapter: Option<accesskit_winit::Adapter>,
+
+    #[cfg(feature = "accessibility")]
+    accessibility_value_update_at: Option<Instant>,
 }
 
 impl<P, C> Window<P, C>
@@ -319,6 +324,32 @@ where
         tree_update: &mut crate::core::accessibility::accesskit::TreeUpdate,
     ) {
         scale_accessibility_tree(tree_update, self.state.scale_factor());
+    }
+
+    /// Delays numeric value tree updates until assistive-technology input is idle.
+    #[cfg(feature = "accessibility")]
+    pub fn debounce_accessibility_value_update(&mut self, value_action_received: bool) -> bool {
+        const DEBOUNCE: core::time::Duration = core::time::Duration::from_millis(150);
+
+        let now = Instant::now();
+
+        if value_action_received {
+            let deadline = now + DEBOUNCE;
+            self.accessibility_value_update_at = Some(deadline);
+            self.request_redraw(RedrawRequest::At(deadline));
+            return false;
+        }
+
+        if let Some(deadline) = self.accessibility_value_update_at {
+            if now < deadline {
+                self.request_redraw(RedrawRequest::At(deadline));
+                return false;
+            }
+
+            self.accessibility_value_update_at = None;
+        }
+
+        true
     }
 
     /// Updates the accessibility tree if an assistive technology is active.

@@ -1127,6 +1127,16 @@ async fn run_instance<P>(
                         {
                             // Process pending accessibility actions from assistive technologies
                             let accessibility_actions = accessibility_handlers::drain_actions();
+                            let numeric_value_action_received =
+                                accessibility_actions.iter().any(|request| {
+                                    use core::accessibility::accesskit::{Action, ActionData};
+
+                                    matches!(request.action, Action::Increment | Action::Decrement)
+                                        || matches!(
+                                            (&request.action, request.data.as_ref()),
+                                            (Action::SetValue, Some(ActionData::NumericValue(_)))
+                                        )
+                                });
 
                             for request in &accessibility_actions {
                                 let mut shell = core::Shell::new(
@@ -1145,9 +1155,13 @@ async fn run_instance<P>(
                                 window.request_redraw(shell.redraw_request());
                             }
 
+                            let should_update_accessibility_tree = window
+                                .debounce_accessibility_value_update(numeric_value_action_received);
+
                             // Action messages update application state on the next redraw. Avoid
                             // sending the pre-action value back to assistive technologies first.
-                            if accessibility_actions.is_empty() {
+                            if accessibility_actions.is_empty() && should_update_accessibility_tree
+                            {
                                 let mut tree = interface.accessibility_tree(&window.renderer);
                                 window.scale_accessibility_tree(&mut tree);
                                 window.update_accessibility_tree(tree);
