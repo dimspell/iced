@@ -1,7 +1,7 @@
 //! Operate on widgets that can be focused.
-use crate::Rectangle;
 use crate::widget::Id;
 use crate::widget::operation::{self, Operation, Outcome};
+use crate::{Point, Rectangle};
 
 /// The internal state of a widget that can be focused.
 pub trait Focusable {
@@ -66,6 +66,83 @@ pub fn unfocus<T>() -> impl Operation<T> {
     }
 
     Unfocus
+}
+
+/// Produces an [`Operation`] that focuses the deepest focusable widget at a point.
+pub fn focus_at<T>(point: Point) -> impl Operation<T>
+where
+    T: Send + 'static,
+{
+    #[derive(Clone, Copy)]
+    struct Hit {
+        index: Option<usize>,
+        area: f32,
+    }
+
+    struct FindHit {
+        point: Point,
+        current: usize,
+        hit: Hit,
+    }
+
+    impl Operation<Hit> for FindHit {
+        fn focusable(&mut self, _id: Option<&Id>, bounds: Rectangle, _state: &mut dyn Focusable) {
+            let area = bounds.width * bounds.height;
+
+            if bounds.contains(self.point) && area <= self.hit.area {
+                self.hit = Hit {
+                    index: Some(self.current),
+                    area,
+                };
+            }
+
+            self.current += 1;
+        }
+
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<Hit>)) {
+            operate(self);
+        }
+
+        fn finish(&self) -> Outcome<Hit> {
+            Outcome::Some(self.hit)
+        }
+    }
+
+    struct FocusHit {
+        target: Option<usize>,
+        current: usize,
+    }
+
+    impl<T> Operation<T> for FocusHit {
+        fn focusable(&mut self, _id: Option<&Id>, _bounds: Rectangle, state: &mut dyn Focusable) {
+            if self.target == Some(self.current) {
+                state.focus();
+            } else {
+                state.unfocus();
+            }
+
+            self.current += 1;
+        }
+
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<T>)) {
+            operate(self);
+        }
+    }
+
+    operation::then(
+        FindHit {
+            point,
+            current: 0,
+            hit: Hit {
+                index: None,
+                area: f32::INFINITY,
+            },
+        },
+        |hit| FocusHit {
+            target: hit.index,
+            current: 0,
+        },
+    )
 }
 
 /// Produces an [`Operation`] that generates a [`Count`] and chains it with the

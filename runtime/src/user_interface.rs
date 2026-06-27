@@ -328,6 +328,17 @@ where
                     return overlay_status;
                 }
 
+                if matches!(
+                    event,
+                    Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                        | Event::Touch(crate::core::touch::Event::FingerPressed { .. })
+                ) && let Some(position) = base_cursor.position()
+                {
+                    let mut operation = widget::operation::focusable::focus_at::<()>(position);
+                    self.operate(renderer, &mut operation);
+                    redraw_request = redraw_request.min(window::RedrawRequest::NextFrame);
+                }
+
                 let mut shell = Shell::new(window, waker.clone(), messages);
 
                 self.root.as_widget_mut().update(

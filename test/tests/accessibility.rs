@@ -931,6 +931,40 @@ fn focused_button_activates_with_enter_and_space() {
 }
 
 #[test]
+fn clicking_radio_updates_accessibility_focus() {
+    let mut ui = simulator::<i32, Theme, Renderer>(radio("Option", 1, None, |value| value));
+    ui.point_at(Point::new(5.0, 5.0));
+    let tree = ui.accessibility_tree();
+    let radio_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::RadioButton)
+        .map(|(id, _)| *id)
+        .expect("Radio node");
+
+    let _ = ui.simulate(iced_test::simulator::click());
+
+    assert_eq!(ui.accessibility_tree().focus, radio_id);
+}
+
+#[test]
+fn clicking_text_input_updates_accessibility_focus() {
+    let mut ui = simulator::<String, Theme, Renderer>(text_input("Name", ""));
+    ui.point_at(Point::new(5.0, 5.0));
+    let tree = ui.accessibility_tree();
+    let input_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .map(|(id, _)| *id)
+        .expect("Text input node");
+
+    let _ = ui.simulate(iced_test::simulator::click());
+
+    assert_eq!(ui.accessibility_tree().focus, input_id);
+}
+
+#[test]
 fn focused_horizontal_slider_responds_to_left_and_right_arrows() {
     let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |value| value));
 
@@ -940,6 +974,27 @@ fn focused_horizontal_slider_responds_to_left_and_right_arrows() {
 
     let messages: Vec<i32> = ui.into_messages().collect();
     assert_eq!(messages, vec![51, 50]);
+}
+
+#[test]
+fn focused_horizontal_slider_ignores_voiceover_arrow_chord() {
+    let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |value| value));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let key = keyboard::Key::Named(keyboard::key::Named::ArrowRight);
+
+    let _ = ui.simulate([Event::Keyboard(keyboard::Event::KeyPressed {
+        key: key.clone(),
+        modified_key: key,
+        physical_key: keyboard::key::Physical::Unidentified(
+            keyboard::key::NativeCode::Unidentified,
+        ),
+        location: keyboard::Location::Standard,
+        modifiers: keyboard::Modifiers::ACCESSIBILITY,
+        repeat: false,
+        text: None,
+    })]);
+
+    assert_eq!(ui.into_messages().count(), 0);
 }
 
 #[test]
