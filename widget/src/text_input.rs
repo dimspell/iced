@@ -418,6 +418,14 @@ where
         let (text, sel_char, cursor_char) =
             text_with_preedit(committed_text, state.input.preedit(), sel_char, cursor_char);
 
+        if state
+            .input
+            .preedit()
+            .is_some_and(|preedit| !preedit.content.is_empty())
+        {
+            builder.set_text_input_marked();
+        }
+
         if text.is_empty() {
             if !self.placeholder.is_empty() {
                 builder.set_placeholder(&*self.placeholder.clone().into_owned());

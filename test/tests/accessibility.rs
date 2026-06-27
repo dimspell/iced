@@ -387,6 +387,7 @@ fn text_input_preedit_updates_accessibility_text() {
     let selection = input.text_selection().expect("Text selection");
 
     assert_eq!(input.value(), Some("文abc"));
+    assert!(input.is_text_input_marked());
     assert_eq!(text_run.value(), Some("文abc"));
     assert_eq!(selection.anchor.character_index, 0);
     assert_eq!(selection.focus.character_index, 1);
@@ -421,6 +422,7 @@ fn text_input_commit_clears_accessibility_preedit() {
     let text_run = find_text_run(&tree).expect("TextRun node");
 
     assert_eq!(input.value(), Some("abc"));
+    assert!(!input.is_text_input_marked());
     assert_eq!(text_run.value(), Some("abc"));
 }
 
@@ -541,6 +543,7 @@ fn text_editor_preedit_updates_accessibility_text() {
     let selection = editor.text_selection().expect("Text selection");
 
     assert_eq!(editor.value(), Some("文"));
+    assert!(editor.is_text_input_marked());
     assert_eq!(text_run.value(), Some("文"));
     assert_eq!(selection.anchor.character_index, 0);
     assert_eq!(selection.focus.character_index, 1);
@@ -577,6 +580,7 @@ fn text_editor_commit_clears_accessibility_preedit() {
     let text_run = find_text_run(&tree).expect("TextRun node");
 
     assert_eq!(editor.value(), None);
+    assert!(!editor.is_text_input_marked());
     assert_eq!(text_run.value(), Some(""));
 }
 

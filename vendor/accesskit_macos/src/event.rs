@@ -17,6 +17,13 @@ use crate::{
     node::{NodeWrapper, Value},
 };
 
+unsafe extern "C" {
+    static NSAccessibilityTextInputMarkingSessionBeganNotification:
+        &'static NSAccessibilityNotificationName;
+    static NSAccessibilityTextInputMarkingSessionEndedNotification:
+        &'static NSAccessibilityNotificationName;
+}
+
 // This type is designed to be safe to create on a non-main thread
 // and send to the main thread. This ability isn't yet used though.
 pub(crate) enum QueuedEvent {
@@ -387,6 +394,16 @@ impl TreeChangeHandler for EventGenerator {
         }
         let old_wrapper = NodeWrapper(old_node);
         let new_wrapper = NodeWrapper(new_node);
+        if old_node.data().is_text_input_marked() != new_node.data().is_text_input_marked() {
+            self.events.push(QueuedEvent::Generic {
+                node_id,
+                notification: if new_node.data().is_text_input_marked() {
+                    unsafe { NSAccessibilityTextInputMarkingSessionBeganNotification }
+                } else {
+                    unsafe { NSAccessibilityTextInputMarkingSessionEndedNotification }
+                },
+            });
+        }
         if old_wrapper.title() != new_wrapper.title() {
             self.events.push(QueuedEvent::Generic {
                 node_id,
@@ -855,6 +872,35 @@ mod tests {
             &generator,
             unsafe { NSAccessibilitySelectedTextChangedNotification }
         ));
+    }
+
+    #[test]
+    fn text_input_marking_session_notifications_follow_marked_state() {
+        let text_input = NodeData::new(Role::TextInput);
+        let mut tree = initial_tree(vec![
+            (ROOT, root([BUTTON])),
+            (BUTTON, text_input.clone()),
+        ]);
+
+        let mut marked = text_input.clone();
+        marked.set_text_input_marked();
+        let generator = update_tree(&mut tree, vec![(BUTTON, marked)]);
+
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityTextInputMarkingSessionBeganNotification
+        }));
+        assert!(!has_notification(&generator, unsafe {
+            NSAccessibilityTextInputMarkingSessionEndedNotification
+        }));
+
+        let generator = update_tree(&mut tree, vec![(BUTTON, text_input)]);
+
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityTextInputMarkingSessionEndedNotification
+        }));
+        assert!(!has_notification(&generator, unsafe {
+            NSAccessibilityTextInputMarkingSessionBeganNotification
+        }));
     }
 
     #[test]

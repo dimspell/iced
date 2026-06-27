@@ -660,8 +660,18 @@ where
                     cursor.position.line,
                     cursor.position.index,
                 ),
-            )
-        });
+             )
+         });
+
+        if state
+            .editor
+            .preedit()
+            .as_ref()
+            .is_some_and(|preedit| !preedit.content.is_empty())
+        {
+            builder.set_text_input_marked();
+        }
+
         if text.is_empty() {
             if let Some(placeholder) = &self.placeholder {
                 builder.set_placeholder(&*placeholder.clone().into_owned());
