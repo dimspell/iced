@@ -415,11 +415,11 @@ where
                     if cursor.is_over(layout.bounds()) || state.is_focused =>
                 {
                     match key {
-                        Key::Named(key::Named::ArrowUp) => {
+                        Key::Named(key::Named::ArrowUp | key::Named::ArrowRight) => {
                             let _ = increment(current_value).map(change);
                             shell.capture_event();
                         }
-                        Key::Named(key::Named::ArrowDown) => {
+                        Key::Named(key::Named::ArrowDown | key::Named::ArrowLeft) => {
                             let _ = decrement(current_value).map(change);
                             shell.capture_event();
                         }

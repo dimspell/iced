@@ -931,6 +931,18 @@ fn focused_button_activates_with_enter_and_space() {
 }
 
 #[test]
+fn focused_horizontal_slider_responds_to_left_and_right_arrows() {
+    let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |value| value));
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowRight));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowLeft));
+
+    let messages: Vec<i32> = ui.into_messages().collect();
+    assert_eq!(messages, vec![51, 50]);
+}
+
+#[test]
 fn increment_action_dispatches_slider_message() {
     let mut ui = simulator::<i32, Theme, Renderer>(slider(0..=100, 50, |v| v));
     // First get the tree to find the slider's node ID
