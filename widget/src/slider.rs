@@ -594,15 +594,12 @@ where
         let mut builder = accesskit::Node::new(accesskit::Role::Slider);
         crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
-        // Set the value as a string
         let value_f64: f64 = self.value.as_();
         let start_f64: f64 = self.range.start().as_();
         let end_f64: f64 = self.range.end().as_();
-        builder.set_value(
-            self.accessible_value
-                .clone()
-                .unwrap_or_else(|| format!("{value_f64}")),
-        );
+        if let Some(value) = &self.accessible_value {
+            builder.set_value(value.clone());
+        }
         builder.set_numeric_value(value_f64);
         builder.set_min_numeric_value(start_f64);
         builder.set_max_numeric_value(end_f64);

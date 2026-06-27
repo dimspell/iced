@@ -567,11 +567,9 @@ where
         builder.set_max_numeric_value(max_f64);
         builder.set_numeric_value_step(self.step.as_());
         builder.set_orientation(accesskit::Orientation::Vertical);
-        builder.set_value(
-            self.accessible_value
-                .clone()
-                .unwrap_or_else(|| format!("{value_f64}")),
-        );
+        if let Some(value) = &self.accessible_value {
+            builder.set_value(value.clone());
+        }
 
         builder.add_action(accesskit::Action::Increment);
         builder.add_action(accesskit::Action::Decrement);

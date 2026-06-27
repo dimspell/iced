@@ -279,6 +279,7 @@ fn slider_numeric_range() {
     assert_eq!(node.numeric_value(), Some(50.0));
     assert_eq!(node.numeric_value_step(), Some(1.0));
     assert_eq!(node.orientation(), Some(accesskit::Orientation::Horizontal));
+    assert_eq!(node.value(), None);
     assert_eq!(node.label(), Some("Volume"));
 }
 
@@ -310,6 +311,7 @@ fn vertical_slider_numeric_range() {
     assert_eq!(node.numeric_value(), Some(50.0));
     assert_eq!(node.numeric_value_step(), Some(1.0));
     assert_eq!(node.orientation(), Some(accesskit::Orientation::Vertical));
+    assert_eq!(node.value(), None);
     assert_eq!(node.label(), Some("Volume"));
 }
 
