@@ -1,7 +1,7 @@
 //! Integration tests for accessibility tree building.
 use accesskit::{Action, ActionRequest, Role, TreeId};
 use iced_test::core::Point;
-use iced_test::core::{Event, Theme, keyboard};
+use iced_test::core::{Event, Theme, input_method, keyboard};
 use iced_test::renderer::Renderer;
 use iced_test::simulator;
 use iced_widget::{
@@ -20,6 +20,10 @@ fn find_node<'a>(tree: &'a accesskit::TreeUpdate, role: Role) -> Option<&'a acce
 fn has_non_empty_bounds(node: &accesskit::Node) -> bool {
     node.bounds()
         .is_some_and(|bounds| bounds.x1 > bounds.x0 && bounds.y1 > bounds.y0)
+}
+
+fn find_text_run<'a>(tree: &'a accesskit::TreeUpdate) -> Option<&'a accesskit::Node> {
+    find_node(tree, Role::TextRun)
 }
 
 fn assert_popup_attached_to_expanded_combo_box(tree: &accesskit::TreeUpdate) {
@@ -355,6 +359,72 @@ fn text_input_accessible_metadata_and_set_value() {
 }
 
 #[test]
+fn text_input_preedit_updates_accessibility_text() {
+    let mut ui =
+        simulator::<String, Theme, Renderer>(text_input("", "abc").on_input(|value| value));
+    let tree = ui.accessibility_tree();
+    let (input_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("TextInput node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let input = find_node(&tree, Role::TextInput).expect("TextInput node");
+    let text_run = find_text_run(&tree).expect("TextRun node");
+    let selection = input.text_selection().expect("Text selection");
+
+    assert_eq!(input.value(), Some("文abc"));
+    assert_eq!(text_run.value(), Some("文abc"));
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 1);
+}
+
+#[test]
+fn text_input_commit_clears_accessibility_preedit() {
+    let mut ui =
+        simulator::<String, Theme, Renderer>(text_input("", "abc").on_input(|value| value));
+    let tree = ui.accessibility_tree();
+    let (input_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("TextInput node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+        Event::InputMethod(input_method::Event::Commit("文".into())),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let input = find_node(&tree, Role::TextInput).expect("TextInput node");
+    let text_run = find_text_run(&tree).expect("TextRun node");
+
+    assert_eq!(input.value(), Some("abc"));
+    assert_eq!(text_run.value(), Some("abc"));
+}
+
+#[test]
 fn text_editor_label() {
     use iced_widget::text_editor;
     let content = text_editor::Content::new();
@@ -438,6 +508,76 @@ fn text_editor_accessible_metadata_and_set_value() {
 
     let messages: Vec<i32> = ui.into_messages().collect();
     assert_eq!(messages, vec![1]);
+}
+
+#[test]
+fn text_editor_preedit_updates_accessibility_text() {
+    use iced_widget::text_editor;
+
+    let content = text_editor::Content::new();
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).on_action(|_| ()));
+    let tree = ui.accessibility_tree();
+    let (editor_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("TextEditor node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: None,
+    });
+
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let editor = find_node(&tree, Role::MultilineTextInput).expect("TextEditor node");
+    let text_run = find_text_run(&tree).expect("TextRun node");
+    let selection = editor.text_selection().expect("Text selection");
+
+    assert_eq!(editor.value(), Some("文"));
+    assert_eq!(text_run.value(), Some("文"));
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 1);
+}
+
+#[test]
+fn text_editor_commit_clears_accessibility_preedit() {
+    use iced_widget::text_editor;
+
+    let content = text_editor::Content::new();
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).on_action(|_| ()));
+    let tree = ui.accessibility_tree();
+    let (editor_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("TextEditor node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: None,
+    });
+
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+        Event::InputMethod(input_method::Event::Commit("文".into())),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let editor = find_node(&tree, Role::MultilineTextInput).expect("TextEditor node");
+    let text_run = find_text_run(&tree).expect("TextRun node");
+
+    assert_eq!(editor.value(), None);
+    assert_eq!(text_run.value(), Some(""));
 }
 
 #[test]
@@ -1160,7 +1300,7 @@ fn combo_box_menu_items_visible_when_focused() {
         simulator::<(), Theme, Renderer>(combo_box(&state, "Pick...", None::<&&str>, |_: &str| ()));
 
     // Click to focus and open the dropdown
-    ui.point_at(Point::new(10.0, 10.0));
+    ui.point_at(Point::new(5.0, 5.0));
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();
@@ -1228,7 +1368,7 @@ fn combo_box_menu_item_click_dispatches_selection() {
     ));
 
     // Open the dropdown
-    ui.point_at(Point::new(10.0, 10.0));
+    ui.point_at(Point::new(5.0, 5.0));
     let _ = ui.simulate(iced_test::simulator::click());
 
     let tree = ui.accessibility_tree();

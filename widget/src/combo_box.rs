@@ -766,15 +766,15 @@ where
     ) {
         use crate::core::accessibility::accesskit;
 
-        let state = tree.state.downcast_mut::<Internal<T, Renderer>>();
-
         if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
-                state.editor.input.unfocus();
+                tree.state.downcast_mut::<Internal<T, Renderer>>().editor.input.unfocus();
             }
 
             return;
         }
+
+        let state = tree.state.downcast_mut::<Internal<T, Renderer>>();
 
         match action.action {
             accesskit::Action::Click | accesskit::Action::Expand => {

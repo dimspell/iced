@@ -166,7 +166,7 @@ where
     /// ```
     /// use iced_core::widget::text;
     /// // Creates a level 1 heading
-    /// let heading = text("Welcome").heading(1);
+    /// let heading = text::Text::<iced_core::Theme, ()>::new("Welcome").heading(1);
     /// ```
     pub fn heading(mut self, level: usize) -> Self {
         self.heading_level = Some(level);

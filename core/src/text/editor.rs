@@ -466,9 +466,13 @@ impl State {
 
                     Some(Update::InputMethod)
                 }
-                input_method::Event::Commit(content) if self.focus.is_some() => Some(
-                    Update::Action(Action::Edit(Edit::Paste(Arc::new(content.clone())))),
-                ),
+                input_method::Event::Commit(content) if self.focus.is_some() => {
+                    self.preedit = None;
+
+                    Some(Update::Action(Action::Edit(Edit::Paste(Arc::new(
+                        content.clone(),
+                    )))))
+                }
                 _ => None,
             },
             Event::Keyboard(keyboard::Event::KeyPressed {
@@ -710,6 +714,11 @@ impl State {
     /// Returns whether the [`Editor`] is currently focused or not.
     pub fn is_focused(&self) -> bool {
         self.focus.is_some()
+    }
+
+    /// Returns the current [`input_method::Preedit`] of the [`State`], if any.
+    pub fn preedit(&self) -> Option<&input_method::Preedit> {
+        self.preedit.as_ref()
     }
 }
 

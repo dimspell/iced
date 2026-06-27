@@ -33,6 +33,7 @@
 //! ```
 use crate::core::alignment;
 use crate::core::clipboard;
+use crate::core::input_method;
 use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::renderer;
@@ -40,6 +41,7 @@ use crate::core::text::editor::{self, Editor as _};
 use crate::core::text::highlighter::{self, Highlighter};
 use crate::core::text::{self, LineHeight, Text, Wrapping};
 use crate::core::theme;
+use crate::core::widget::operation::Focusable;
 use crate::core::widget::{self, Widget};
 use crate::core::window;
 use crate::core::{
@@ -644,11 +646,22 @@ where
         let mut builder = accesskit::Node::new(accesskit::Role::MultilineTextInput);
         crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
 
+        let state = tree.state.downcast_ref::<State<Highlighter>>();
+
         // Set the text content as the value
-        let text = self
-            .accessible_value
-            .clone()
-            .unwrap_or_else(|| self.content.text());
+        let cursor = self.content.cursor();
+        let committed_text = self.content.text();
+        let text = self.accessible_value.clone().unwrap_or_else(|| {
+            text_with_preedit(
+                &committed_text,
+                state.editor.preedit(),
+                line_col_byte_offset(
+                    &committed_text,
+                    cursor.position.line,
+                    cursor.position.index,
+                ),
+            )
+        });
         if text.is_empty() {
             if let Some(placeholder) = &self.placeholder {
                 builder.set_placeholder(&*placeholder.clone().into_owned());
@@ -670,16 +683,22 @@ where
         text_run.set_word_starts(word_starts.into_boxed_slice());
 
         // Convert cursor line/index to character index for text_selection
-        let cursor = self.content.cursor();
-        let cursor_byte = line_col_byte_offset(&text, cursor.position.line, cursor.position.index);
-        let cursor_char = byte_to_char_index(&char_lengths, cursor_byte);
+        let committed_char_lengths = char_byte_lengths(&committed_text);
+        let cursor_byte = line_col_byte_offset(
+            &committed_text,
+            cursor.position.line,
+            cursor.position.index,
+        );
+        let cursor_char = byte_to_char_index(&committed_char_lengths, cursor_byte);
         let sel_char = cursor
             .selection
             .map(|s| {
-                let byte = line_col_byte_offset(&text, s.line, s.index);
-                byte_to_char_index(&char_lengths, byte)
+                let byte = line_col_byte_offset(&committed_text, s.line, s.index);
+                byte_to_char_index(&committed_char_lengths, byte)
             })
             .unwrap_or(cursor_char);
+        let (sel_char, cursor_char) =
+            preedit_selection(state.editor.preedit(), cursor_char, sel_char, cursor_char);
 
         builder.set_text_selection(accesskit::TextSelection {
             anchor: accesskit::TextPosition {
@@ -711,7 +730,6 @@ where
         );
 
         // Track keyboard focus for the accessibility tree
-        let state = tree.state.downcast_ref::<State<Highlighter>>();
         if state.editor.is_focused() {
             tree.set_accesskit_focused(true);
         }
@@ -738,7 +756,10 @@ where
             return;
         }
 
-        if action.action == accesskit::Action::ReplaceSelectedText {
+        if matches!(
+            action.action,
+            accesskit::Action::ReplaceSelectedText | accesskit::Action::SetValue
+        ) {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_edit) = &self.on_edit {
@@ -893,7 +914,6 @@ where
             .finish()
     }
 }
-
 /// The possible status of a [`TextEditor`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -992,8 +1012,6 @@ pub fn default(theme: &Theme, status: Status) -> Style {
         },
     }
 }
-    }
-}
 
 #[cfg(feature = "accessibility")]
 fn char_byte_lengths(text: &str) -> Vec<u8> {
@@ -1031,6 +1049,51 @@ fn line_col_byte_offset(text: &str, line: usize, index: usize) -> usize {
         offset += line_text.len() + 1; // +1 for newline character
     }
     offset.min(text.len())
+}
+
+#[cfg(feature = "accessibility")]
+fn text_with_preedit(
+    text: &str,
+    preedit: Option<&input_method::Preedit>,
+    insertion_byte: usize,
+) -> String {
+    let mut text = text.to_owned();
+
+    let Some(preedit) = preedit.filter(|preedit| !preedit.content.is_empty()) else {
+        return text;
+    };
+
+    let insertion_byte = insertion_byte.min(text.len());
+    text.insert_str(insertion_byte, &preedit.content);
+
+    text
+}
+
+#[cfg(feature = "accessibility")]
+fn preedit_selection(
+    preedit: Option<&input_method::Preedit>,
+    insertion: usize,
+    anchor: usize,
+    focus: usize,
+) -> (usize, usize) {
+    let Some(preedit) = preedit.filter(|preedit| !preedit.content.is_empty()) else {
+        return (anchor, focus);
+    };
+
+    let selection = preedit.selection.as_ref().map_or_else(
+        || {
+            let len = char_byte_lengths(&preedit.content).len();
+            len..len
+        },
+        |selection| {
+            let char_lengths = char_byte_lengths(&preedit.content);
+
+            byte_to_char_index(&char_lengths, selection.start)
+                ..byte_to_char_index(&char_lengths, selection.end)
+        },
+    );
+
+    (insertion + selection.start, insertion + selection.end)
 }
 
 #[cfg(feature = "accessibility")]

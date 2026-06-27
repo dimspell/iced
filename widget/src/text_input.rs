@@ -31,6 +31,7 @@
 //! }
 //! ```
 use crate::core::keyboard;
+use crate::core::input_method;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
@@ -392,13 +393,34 @@ where
         );
 
         // Use placeholder as name if value is empty
-        let text = self
+        let state = tree.state.downcast_ref::<State<Renderer>>();
+        let committed_text = self
             .accessible_value
             .clone()
             .unwrap_or_else(|| self.value.to_string());
+
+        let cursor = state.input.cursor();
+        let committed_char_lengths = char_byte_lengths(&committed_text);
+        let cursor_char = byte_to_char_index(
+            &committed_char_lengths,
+            line_col_byte_offset(&committed_text, cursor.position.line, cursor.position.index),
+        );
+        let sel_char = cursor
+            .selection
+            .map(|s| {
+                byte_to_char_index(
+                    &committed_char_lengths,
+                    line_col_byte_offset(&committed_text, s.line, s.index),
+                )
+            })
+            .unwrap_or(cursor_char);
+
+        let (text, sel_char, cursor_char) =
+            text_with_preedit(committed_text, state.input.preedit(), sel_char, cursor_char);
+
         if text.is_empty() {
             if !self.placeholder.is_empty() {
-                builder.set_placeholder(self.placeholder.as_str());
+                builder.set_placeholder(&*self.placeholder.clone().into_owned());
             }
         } else {
             builder.set_value(text.as_str());
@@ -415,19 +437,6 @@ where
         text_run.set_value(text.as_str());
         text_run.set_character_lengths(char_lengths.clone().into_boxed_slice());
         text_run.set_word_starts(word_starts.into_boxed_slice());
-
-        // Convert cursor line/index to character index for text_selection
-        let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
-        let cursor = state.input.cursor();
-        let cursor_byte = line_col_byte_offset(&text, cursor.position.line, cursor.position.index);
-        let cursor_char = byte_to_char_index(&char_lengths, cursor_byte);
-        let sel_char = cursor
-            .selection
-            .map(|s| {
-                let byte = line_col_byte_offset(&text, s.line, s.index);
-                byte_to_char_index(&char_lengths, byte)
-            })
-            .unwrap_or(cursor_char);
 
         builder.set_text_selection(accesskit::TextSelection {
             anchor: accesskit::TextPosition {
@@ -473,7 +482,7 @@ where
         if !tree.owns_accesskit_node_id(action.target_node) {
             if action.action == accesskit::Action::Focus {
                 tree.state
-                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .downcast_mut::<State<Renderer>>()
                     .unfocus();
             }
 
@@ -494,7 +503,7 @@ where
             }
         } else if action.action == accesskit::Action::Focus {
             tree.state
-                .downcast_mut::<State<Renderer::Paragraph>>()
+                .downcast_mut::<State<Renderer>>()
                 .focus();
             shell.request_redraw();
         }
@@ -845,13 +854,55 @@ fn line_col_byte_offset(text: &str, line: usize, index: usize) -> usize {
 }
 
 #[cfg(feature = "accessibility")]
+fn text_with_preedit(
+    mut text: String,
+    preedit: Option<&input_method::Preedit>,
+    anchor: usize,
+    focus: usize,
+) -> (String, usize, usize) {
+    let Some(preedit) = preedit.filter(|preedit| !preedit.content.is_empty()) else {
+        return (text, anchor, focus);
+    };
+
+    let insertion = anchor.min(focus);
+    let insertion_byte = {
+        let char_lengths = char_byte_lengths(&text);
+
+        char_lengths
+            .iter()
+            .take(insertion.min(char_lengths.len()))
+            .map(|&len| len as usize)
+            .sum()
+    };
+    text.insert_str(insertion_byte, &preedit.content);
+
+    let selection = preedit.selection.as_ref().map_or_else(
+        || {
+            let len = char_byte_lengths(&preedit.content).len();
+            len..len
+        },
+        |selection| {
+            let char_lengths = char_byte_lengths(&preedit.content);
+
+            byte_to_char_index(&char_lengths, selection.start)
+                ..byte_to_char_index(&char_lengths, selection.end)
+        },
+    );
+
+    (text, insertion + selection.start, insertion + selection.end)
+}
+
+#[cfg(feature = "accessibility")]
 fn byte_to_char_index(char_lengths: &[u8], byte_offset: usize) -> usize {
     let mut accumulated = 0;
+
     for (i, &len) in char_lengths.iter().enumerate() {
         if accumulated >= byte_offset {
             return i;
         }
+
         accumulated += len as usize;
     }
+
     char_lengths.len()
 }
