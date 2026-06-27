@@ -22,6 +22,8 @@ bitflags! {
         /// The "windows" key on Windows, "command" key on Mac, and
         /// "super" key on Linux.
         const LOGO = 0b100 << 9;
+        /// A platform assistive-technology command modifier.
+        const ACCESSIBILITY = 0b100 << 12;
         // const LLOGO = 0b010 << 9;
         // const RLOGO = 0b001 << 9;
         /// No modifiers
@@ -68,6 +70,11 @@ impl Modifiers {
     /// [`LOGO`]: Self::LOGO
     pub fn logo(self) -> bool {
         self.contains(Self::LOGO)
+    }
+
+    /// Returns true if a platform assistive-technology command modifier is active.
+    pub fn accessibility(self) -> bool {
+        self.contains(Self::ACCESSIBILITY)
     }
 
     /// Returns true if a "command key" is pressed in the [`Modifiers`].

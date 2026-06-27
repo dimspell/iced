@@ -411,8 +411,9 @@ where
 
                     shell.capture_event();
                 }
-                Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
-                    if cursor.is_over(layout.bounds()) || state.is_focused =>
+                Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. })
+                    if (cursor.is_over(layout.bounds()) || state.is_focused)
+                        && !voiceover_modifiers(*modifiers) =>
                 {
                     match key {
                         Key::Named(key::Named::ArrowUp | key::Named::ArrowRight) => {
@@ -683,6 +684,10 @@ where
             _ => {}
         }
     }
+}
+
+fn voiceover_modifiers(modifiers: keyboard::Modifiers) -> bool {
+    modifiers.accessibility()
 }
 
 #[cfg(feature = "accessibility")]
