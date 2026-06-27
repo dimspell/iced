@@ -1126,7 +1126,9 @@ async fn run_instance<P>(
                         #[cfg(feature = "accessibility")]
                         {
                             // Process pending accessibility actions from assistive technologies
-                            for request in accessibility_handlers::drain_actions() {
+                            let accessibility_actions = accessibility_handlers::drain_actions();
+
+                            for request in &accessibility_actions {
                                 let mut shell = core::Shell::new(
                                     &window.raw,
                                     window.waker.clone(),
@@ -1143,10 +1145,13 @@ async fn run_instance<P>(
                                 window.request_redraw(shell.redraw_request());
                             }
 
-                            // Build and send the updated accessibility tree
-                            let mut tree = interface.accessibility_tree(&window.renderer);
-                            window.scale_accessibility_tree(&mut tree);
-                            window.update_accessibility_tree(tree);
+                            // Action messages update application state on the next redraw. Avoid
+                            // sending the pre-action value back to assistive technologies first.
+                            if accessibility_actions.is_empty() {
+                                let mut tree = interface.accessibility_tree(&window.renderer);
+                                window.scale_accessibility_tree(&mut tree);
+                                window.update_accessibility_tree(tree);
+                            }
                         }
 
                         let present_span = debug::present(id);

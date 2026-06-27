@@ -329,11 +329,11 @@ impl NodeWrapper<'_> {
             // Also, `Node::is_selected` is mapped to checked via `accessibilityValue`.
             return Some(Value::Bool(self.0.is_selected().unwrap_or(false)));
         }
-        if let Some(value) = self.0.value() {
-            return Some(Value::String(value));
-        }
         if let Some(value) = self.0.numeric_value() {
             return Some(Value::Number(value));
+        }
+        if let Some(value) = self.0.value() {
+            return Some(Value::String(value));
         }
         None
     }
@@ -548,6 +548,16 @@ declare_class!(
                         Id::into_super(NSString::from_str(&value))
                     }
                 })
+            })
+            .flatten()
+        }
+
+        #[method_id(accessibilityValueDescription)]
+        fn value_description(&self) -> Option<Id<NSString>> {
+            self.resolve(|node| {
+                node.numeric_value()
+                    .and_then(|_| node.value())
+                    .map(|value| NSString::from_str(&value))
             })
             .flatten()
         }
@@ -1285,6 +1295,7 @@ declare_class!(
                     || selector == sel!(accessibilityHelp)
                     || selector == sel!(accessibilityPlaceholderValue)
                     || selector == sel!(accessibilityValue)
+                    || selector == sel!(accessibilityValueDescription)
                     || selector == sel!(accessibilityMinValue)
                     || selector == sel!(accessibilityMaxValue)
                     || selector == sel!(isAccessibilityRequired)

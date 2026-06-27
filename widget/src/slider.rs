@@ -606,6 +606,8 @@ where
         builder.set_numeric_value(value_f64);
         builder.set_min_numeric_value(start_f64);
         builder.set_max_numeric_value(end_f64);
+        builder.set_numeric_value_step(self.step);
+        builder.set_orientation(accesskit::Orientation::Horizontal);
 
         builder.add_action(accesskit::Action::Increment);
         builder.add_action(accesskit::Action::Decrement);

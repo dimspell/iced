@@ -565,6 +565,8 @@ where
         builder.set_numeric_value(value_f64);
         builder.set_min_numeric_value(min_f64);
         builder.set_max_numeric_value(max_f64);
+        builder.set_numeric_value_step(self.step.as_());
+        builder.set_orientation(accesskit::Orientation::Vertical);
         builder.set_value(
             self.accessible_value
                 .clone()
