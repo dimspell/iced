@@ -189,6 +189,7 @@ impl App {
             text("Sliders").heading(2),
             slider(0..=100, self.slider, Message::SliderChanged).accessible_label("Volume"),
             vertical_slider(0..=100, self.vslider, Message::VSliderChanged)
+                .height(160)
                 .accessible_label("Brightness"),
         ]
         .spacing(12)
