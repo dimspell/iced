@@ -289,6 +289,12 @@ pub(crate) fn can_be_focused(node: &Node) -> bool {
     filter(node) == FilterResult::Include && node.role() != Role::Window
 }
 
+fn supports_direct_value_set(node: &Node) -> bool {
+    node.role() != Role::Slider
+        && ((node.supports_text_ranges() && !node.is_read_only())
+            || node.supports_action(Action::SetValue, &filter))
+}
+
 #[derive(PartialEq)]
 pub(crate) enum Value {
     Bool(bool),
@@ -566,6 +572,10 @@ declare_class!(
         fn set_value(&self, value: &NSObject) {
             if let Some(string) = downcast_ref::<NSString>(value) {
                 self.resolve_with_context(|node, tree, context| {
+                    if !supports_direct_value_set(node) {
+                        return;
+                    }
+
                     if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
                         context.do_action(ActionRequest {
                             action: Action::SetValue,
@@ -577,6 +587,10 @@ declare_class!(
                 });
             } else if let Some(number) = downcast_ref::<NSNumber>(value) {
                 self.resolve_with_context(|node, tree, context| {
+                    if !supports_direct_value_set(node) {
+                        return;
+                    }
+
                     if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
                         context.do_action(ActionRequest {
                             action: Action::SetValue,
@@ -1246,7 +1260,7 @@ declare_class!(
                     return node.supports_text_ranges();
                 }
                 if selector == sel!(setAccessibilityValue:) {
-                    return (node.supports_text_ranges() && !node.is_read_only()) || node.supports_action(Action::SetValue, &filter);
+                    return supports_direct_value_set(node);
                 }
                 if selector == sel!(isAccessibilitySelected) {
                     let wrapper = NodeWrapper(node);
