@@ -743,6 +743,22 @@ where
         shell: &mut Shell<'_, Message>,
     ) {
         if request.action == accesskit::Action::Focus {
+            if self.state.contains_accesskit_node_id(request.target_node) {
+                let scroll_request = accesskit::ActionRequest {
+                    action: accesskit::Action::ScrollIntoView,
+                    target_tree: request.target_tree,
+                    target_node: request.target_node,
+                    data: None,
+                };
+
+                self.root.as_widget_mut().accessibility_action(
+                    &mut self.state,
+                    Layout::new(&self.base),
+                    &scroll_request,
+                    shell,
+                );
+            }
+
             let mut operation = widget::operation::focusable::unfocus::<()>();
 
             self.operate(renderer, &mut operation);

@@ -1889,6 +1889,47 @@ fn scrollable_scroll_into_view_moves_to_descendant() {
 }
 
 #[test]
+fn focusing_scrollable_descendant_scrolls_it_into_view() {
+    use iced_test::core::Length;
+
+    let mut ui = simulator::<(), Theme, Renderer>(
+        scrollable(column![
+            text("Top"),
+            iced_widget::space::Space::new().height(Length::Fixed(900.0)),
+            button("Target").on_press(())
+        ])
+        .height(Length::Fixed(50.0)),
+    );
+
+    let tree = ui.accessibility_tree();
+    let target_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::Button)
+        .map(|(id, _)| *id)
+        .expect("Target button node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: target_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    let scrollable = tree
+        .nodes
+        .iter()
+        .find_map(|(_, node)| {
+            (node.role() == Role::Group && node.scroll_y_max() > Some(0.0)).then_some(node)
+        })
+        .expect("Scrollable Group node");
+
+    assert!(scrollable.scroll_y() > Some(0.0));
+    assert_eq!(tree.focus, target_id);
+}
+
+#[test]
 fn scrollable_without_overflow_no_scroll_actions() {
     // Single line of text fills the scrollable without overflow
     let mut ui = simulator::<(), Theme, Renderer>(scrollable(text("Short content")));

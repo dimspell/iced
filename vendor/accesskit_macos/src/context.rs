@@ -11,7 +11,7 @@ use objc2::rc::{Id, WeakId};
 use objc2_app_kit::*;
 use objc2_foundation::MainThreadMarker;
 use std::fmt::Debug;
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::{Cell, RefCell}, rc::Rc};
 
 pub(crate) trait ActionHandlerNoMut {
     fn do_action(&self, request: ActionRequest);
@@ -36,6 +36,7 @@ pub(crate) struct Context {
     pub(crate) tree: RefCell<Tree>,
     pub(crate) action_handler: Rc<dyn ActionHandlerNoMut>,
     platform_nodes: RefCell<HashMap<NodeId, Id<PlatformNode>>>,
+    pending_scroll_into_view: Cell<Option<NodeId>>,
     pub(crate) mtm: MainThreadMarker,
 }
 
@@ -63,6 +64,7 @@ impl Context {
             tree: RefCell::new(tree),
             action_handler,
             platform_nodes: RefCell::new(HashMap::new()),
+            pending_scroll_into_view: Cell::new(None),
             mtm,
         })
     }
@@ -85,6 +87,27 @@ impl Context {
 
     pub(crate) fn do_action(&self, request: ActionRequest) {
         self.action_handler.do_action(request);
+    }
+
+    pub(crate) fn request_scroll_into_view(&self, node: &accesskit_consumer::Node) {
+        if self.pending_scroll_into_view.get().is_some() {
+            return;
+        }
+
+        let tree = self.tree.borrow();
+        if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
+            self.pending_scroll_into_view.set(Some(node.id()));
+            self.do_action(ActionRequest {
+                action: accesskit::Action::ScrollIntoView,
+                target_tree,
+                target_node,
+                data: None,
+            });
+        }
+    }
+
+    pub(crate) fn clear_pending_scroll_into_view(&self) {
+        self.pending_scroll_into_view.set(None);
     }
 }
 

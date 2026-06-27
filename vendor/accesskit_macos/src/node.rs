@@ -292,6 +292,65 @@ pub(crate) fn can_be_focused(node: &Node) -> bool {
     filter(node) == FilterResult::Include && node.role() != Role::Window
 }
 
+#[derive(Clone, Copy)]
+struct VisibleBounds {
+    rect: accesskit::Rect,
+    fully_outside: bool,
+}
+
+fn clip_or_anchor(bounds: accesskit::Rect, viewport: accesskit::Rect) -> VisibleBounds {
+    let clipped = bounds.intersect(viewport);
+    if !clipped.is_empty() {
+        return VisibleBounds {
+            rect: clipped,
+            fully_outside: false,
+        };
+    }
+
+    let center_x = (bounds.x0 + bounds.x1) / 2.0;
+    let center_y = (bounds.y0 + bounds.y1) / 2.0;
+    let x = center_x.clamp(viewport.x0, viewport.x1 - 1.0);
+    let y = center_y.clamp(viewport.y0, viewport.y1 - 1.0);
+
+    VisibleBounds {
+        rect: accesskit::Rect::new(x, y, x + 1.0, y + 1.0),
+        fully_outside: true,
+    }
+}
+
+fn visible_bounding_box(node: &Node, host_bounds: accesskit::Rect) -> Option<VisibleBounds> {
+    let mut result = VisibleBounds {
+        rect: node.bounding_box()?,
+        fully_outside: false,
+    };
+    let mut ancestor = node.parent();
+
+    while let Some(parent) = ancestor {
+        let scroll_x = parent.scroll_x().unwrap_or(0.0);
+        let scroll_y = parent.scroll_y().unwrap_or(0.0);
+        let transform = parent.transform();
+        let origin = transform * accesskit::Point::new(0.0, 0.0);
+        let scroll = transform * accesskit::Point::new(scroll_x, scroll_y);
+        result.rect = result.rect - (scroll - origin);
+
+        let scrolls_x = parent.scroll_x_max() > parent.scroll_x_min();
+        let scrolls_y = parent.scroll_y_max() > parent.scroll_y_min();
+        if (scrolls_x || scrolls_y) && let Some(parent_bounds) = parent.bounding_box() {
+            let clipped = clip_or_anchor(result.rect, parent_bounds);
+            result.rect = clipped.rect;
+            result.fully_outside |= clipped.fully_outside;
+        }
+
+        ancestor = parent.parent();
+    }
+
+    let clipped = clip_or_anchor(result.rect, host_bounds);
+    result.rect = clipped.rect;
+    result.fully_outside |= clipped.fully_outside;
+
+    Some(result)
+}
+
 fn supports_direct_value_set(node: &Node) -> bool {
     node.role() != Role::Slider
         && ((node.supports_text_ranges() && !node.is_read_only())
@@ -471,7 +530,23 @@ declare_class!(
                     }
                 };
 
-                node.bounding_box().map_or_else(
+                let view_rect = view.bounds();
+                let factor = view.window().map_or(1.0, |window| window.backingScaleFactor());
+                let host_bounds = accesskit::Rect::new(
+                    0.0,
+                    0.0,
+                    view_rect.size.width * factor,
+                    view_rect.size.height * factor,
+                );
+                let visible_bounds = visible_bounding_box(node, host_bounds);
+
+                if visible_bounds.is_some_and(|bounds| bounds.fully_outside)
+                    && node.supports_action(Action::ScrollIntoView, &filter)
+                {
+                    context.request_scroll_into_view(node);
+                }
+
+                visible_bounds.map(|bounds| bounds.rect).map_or_else(
                     || {
                         if node.is_root() {
                             unsafe { NSAccessibility::accessibilityFrame(&*view) }
@@ -1417,5 +1492,117 @@ impl PlatformNode {
 
             NSArray::from_vec(platform_nodes)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::visible_bounding_box;
+    use accesskit::{Node, NodeId, Rect, Role, Tree as TreeData, TreeId, TreeUpdate};
+    use accesskit_consumer::Tree;
+
+    const ROOT: NodeId = NodeId(0);
+    const SCROLLABLE: NodeId = NodeId(1);
+    const TARGET: NodeId = NodeId(2);
+
+    fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Rect {
+        Rect { x0, y0, x1, y1 }
+    }
+
+    fn target_bounds(scroll_y: f64, target: Rect, host: Rect) -> super::VisibleBounds {
+        target_bounds_with_scale(1.0, scroll_y, target, host)
+    }
+
+    fn target_bounds_with_scale(
+        scale: f64,
+        scroll_y: f64,
+        target: Rect,
+        host: Rect,
+    ) -> super::VisibleBounds {
+        let mut root = Node::new(Role::Window);
+        root.set_bounds(rect(0.0, 0.0, 100.0, 300.0));
+        root.set_transform(accesskit::Affine::scale(scale));
+        root.push_child(SCROLLABLE);
+
+        let mut scrollable = Node::new(Role::Group);
+        scrollable.set_bounds(rect(0.0, 0.0, 100.0, 50.0));
+        scrollable.set_scroll_y(scroll_y);
+        scrollable.set_scroll_y_min(0.0);
+        scrollable.set_scroll_y_max(250.0);
+        scrollable.push_child(TARGET);
+
+        let mut target_node = Node::new(Role::Button);
+        target_node.set_bounds(target);
+
+        let tree = Tree::new(
+            TreeUpdate {
+                nodes: vec![
+                    (ROOT, root),
+                    (SCROLLABLE, scrollable),
+                    (TARGET, target_node),
+                ],
+                tree: Some(TreeData::new(ROOT)),
+                tree_id: TreeId::ROOT,
+                focus: TARGET,
+            },
+            true,
+        );
+        let target = tree
+            .state()
+            .root()
+            .children()
+            .next()
+            .and_then(|scrollable| scrollable.children().next())
+            .expect("Target node");
+
+        visible_bounding_box(&target, host).expect("Visible bounds")
+    }
+
+    #[test]
+    fn scroll_offset_is_applied_to_platform_frame() {
+        let visible = target_bounds(
+            100.0,
+            rect(10.0, 120.0, 90.0, 140.0),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+
+        assert_eq!(visible.rect, rect(10.0, 20.0, 90.0, 40.0));
+        assert!(!visible.fully_outside);
+    }
+
+    #[test]
+    fn scroll_offset_uses_same_physical_scale_as_platform_frame() {
+        let visible = target_bounds_with_scale(
+            2.0,
+            100.0,
+            rect(10.0, 120.0, 90.0, 140.0),
+            rect(0.0, 0.0, 200.0, 200.0),
+        );
+
+        assert_eq!(visible.rect, rect(20.0, 40.0, 180.0, 80.0));
+        assert!(!visible.fully_outside);
+    }
+
+    #[test]
+    fn offscreen_platform_frame_is_anchored_and_requests_scroll() {
+        let visible = target_bounds(
+            0.0,
+            rect(10.0, 120.0, 90.0, 140.0),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+
+        assert_eq!(visible.rect, rect(50.0, 49.0, 51.0, 50.0));
+        assert!(visible.fully_outside);
+    }
+
+    #[test]
+    fn platform_frame_never_exceeds_actual_host_view() {
+        let visible = target_bounds(
+            0.0,
+            rect(80.0, 20.0, 140.0, 40.0),
+            rect(0.0, 0.0, 100.0, 100.0),
+        );
+
+        assert_eq!(visible.rect, rect(80.0, 20.0, 100.0, 40.0));
     }
 }

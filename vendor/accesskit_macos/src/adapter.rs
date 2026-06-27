@@ -139,6 +139,7 @@ impl Adapter {
                 let mut event_generator = EventGenerator::new(context.clone());
                 let mut tree = context.tree.borrow_mut();
                 tree.update_and_process_changes(update_factory(), &mut event_generator);
+                context.clear_pending_scroll_into_view();
                 Some(event_generator.into_result())
             }
         }

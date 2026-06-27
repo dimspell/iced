@@ -657,7 +657,6 @@ where
                 state.offset_y = Offset::Absolute(new_y);
                 shell.invalidate_layout();
                 shell.request_redraw();
-                return;
             }
         }
 
