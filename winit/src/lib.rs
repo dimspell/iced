@@ -796,7 +796,8 @@ async fn run_instance<P>(
                 // screen reader has content on first activation.
                 #[cfg(feature = "accessibility")]
                 if let Some(ui) = user_interfaces.get_mut(&id) {
-                    let tree = ui.accessibility_tree(&window.renderer);
+                    let mut tree = ui.accessibility_tree(&window.renderer);
+                    window.scale_accessibility_tree(&mut tree);
 
                     // Store the tree so `request_initial_tree` on the
                     // activation handler can return it when the screen reader
@@ -1096,9 +1097,9 @@ async fn run_instance<P>(
                             }
 
                             // Build and send the updated accessibility tree
-                            window.update_accessibility_tree(
-                                interface.accessibility_tree(&window.renderer),
-                            );
+                            let mut tree = interface.accessibility_tree(&window.renderer);
+                            window.scale_accessibility_tree(&mut tree);
+                            window.update_accessibility_tree(tree);
                         }
 
                         let present_span = debug::present(id);
