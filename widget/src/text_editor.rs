@@ -39,7 +39,7 @@ use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::text::editor::{self, Editor as _};
 use crate::core::text::highlighter::{self, Highlighter};
-use crate::core::text::{self, LineHeight, Text, Wrapping};
+use crate::core::text::{self, LineHeight, Position, Text, Wrapping};
 use crate::core::theme;
 use crate::core::widget::operation::Focusable;
 use crate::core::widget::{self, Widget};
@@ -50,6 +50,8 @@ use crate::core::{
 };
 
 use std::borrow::Cow;
+#[cfg(feature = "accessibility")]
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::DerefMut;
@@ -111,6 +113,7 @@ where
     class: Theme::Class<'a>,
     key_binding: Option<Box<dyn Fn(KeyPress) -> Option<Binding<Message>> + 'a>>,
     on_edit: Option<Box<dyn Fn(Action) -> Message + 'a>>,
+    is_read_only: bool,
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
@@ -140,6 +143,7 @@ where
             class: <Theme as Catalog>::default(),
             key_binding: None,
             on_edit: None,
+            is_read_only: false,
             highlighter_settings: (),
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
@@ -187,6 +191,15 @@ where
     /// If this method is not called, the [`TextEditor`] will be disabled.
     pub fn on_action(mut self, on_edit: impl Fn(Action) -> Message + 'a) -> Self {
         self.on_edit = Some(Box::new(on_edit));
+        self
+    }
+
+    /// Sets whether the [`TextEditor`] is read-only.
+    ///
+    /// A read-only editor can still be focused, navigated, selected, copied,
+    /// and scrolled, but its contents cannot be edited.
+    pub fn read_only(mut self, is_read_only: bool) -> Self {
+        self.is_read_only = is_read_only;
         self
     }
 
@@ -262,6 +275,7 @@ where
             class: self.class,
             key_binding: self.key_binding,
             on_edit: self.on_edit,
+            is_read_only: self.is_read_only,
             highlighter_settings: settings,
             highlighter_format: to_format,
             last_status: self.last_status,
@@ -328,6 +342,8 @@ struct State<H: Highlighter> {
     highlighter_settings: H::Settings,
     highlighter_format_address: usize,
     last_theme: RefCell<Option<String>>,
+    #[cfg(feature = "accessibility")]
+    accesskit_text_run_id: Cell<Option<accesskit::NodeId>>,
 }
 impl<Highlighter, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for TextEditor<'_, Highlighter, Message, Theme, Renderer>
@@ -347,6 +363,8 @@ where
             highlighter_settings: self.highlighter_settings.clone(),
             highlighter_format_address: self.highlighter_format as usize,
             last_theme: RefCell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_text_run_id: Cell::new(None),
         })
     }
 
@@ -422,23 +440,33 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        let Some(on_edit) = self.on_edit.as_ref() else {
+        if self.on_edit.is_none() && !self.is_read_only {
             return;
-        };
+        }
 
+        let on_edit = self.on_edit.as_deref();
         let state = tree.state.downcast_mut::<State<Highlighter>>();
         let is_redraw = matches!(event, Event::Window(window::Event::RedrawRequested(_now)),);
 
-        let editor = &self.content.0.borrow().editor;
-
-        fn apply_update<Message>(
+        fn apply_update<Message, Renderer: text::Renderer>(
             update: editor::Update<Message>,
             shell: &mut Shell<'_, Message>,
-            on_edit: &impl Fn(editor::Action) -> Message,
+            on_edit: Option<&dyn Fn(editor::Action) -> Message>,
+            is_read_only: bool,
+            content: &Content<Renderer>,
         ) {
             match update {
                 editor::Update::Action(action) => {
-                    shell.publish(on_edit(action));
+                    if is_read_only && matches!(action, editor::Action::Edit(_)) {
+                        return;
+                    }
+
+                    if let Some(on_edit) = on_edit {
+                        shell.publish(on_edit(action));
+                    } else {
+                        content.0.borrow_mut().editor.perform(action);
+                        shell.request_redraw();
+                    }
                 }
                 editor::Update::Release => {}
                 editor::Update::Custom(message) => {
@@ -446,7 +474,7 @@ where
                 }
                 editor::Update::Sequence(updates) => {
                     for update in updates {
-                        apply_update(update, shell, on_edit);
+                        apply_update(update, shell, on_edit, is_read_only, content);
                     }
                 }
                 editor::Update::Copy(content) => {
@@ -464,21 +492,33 @@ where
             }
         }
 
-        if let Some(update) = state.editor.update(
-            &self.content.0.borrow().editor,
-            event,
-            layout.bounds(),
-            self.padding,
-            cursor,
-            self.key_binding
-                .as_deref()
-                .unwrap_or(&Binding::from_key_press as _),
-        ) {
-            apply_update(update, shell, on_edit);
+        let update = if self.is_read_only && matches!(event, Event::InputMethod(_)) {
+            None
+        } else {
+            state.editor.update(
+                &self.content.0.borrow().editor,
+                event,
+                layout.bounds(),
+                self.padding,
+                cursor,
+                self.key_binding
+                    .as_deref()
+                    .unwrap_or(&Binding::from_key_press as _),
+            )
+        };
+
+        if let Some(update) = update {
+            apply_update(
+                update,
+                shell,
+                on_edit,
+                self.is_read_only,
+                &self.content,
+            );
         }
 
         let status = {
-            let is_disabled = self.on_edit.is_none();
+            let is_disabled = self.on_edit.is_none() && !self.is_read_only;
             let is_hovered = cursor.is_over(layout.bounds());
 
             if is_disabled {
@@ -496,9 +536,10 @@ where
             self.last_status = Some(status);
 
             shell.request_input_method(
-                &state
-                    .editor
-                    .input_method(editor, layout.bounds().shrink(self.padding).position()),
+                &state.editor.input_method(
+                    &self.content.0.borrow().editor,
+                    layout.bounds().shrink(self.padding).position(),
+                ),
             );
         } else if self
             .last_status
@@ -651,17 +692,16 @@ where
         // Set the text content as the value
         let cursor = self.content.cursor();
         let committed_text = self.content.text();
-        let text = self.accessible_value.clone().unwrap_or_else(|| {
-            text_with_preedit(
+        let text = text_with_preedit(
+            &committed_text,
+            state.editor.preedit(),
+            line_col_byte_offset(
                 &committed_text,
-                state.editor.preedit(),
-                line_col_byte_offset(
-                    &committed_text,
-                    cursor.position.line,
-                    cursor.position.index,
-                ),
-             )
-         });
+                cursor.position.line,
+                cursor.position.index,
+            ),
+        );
+        let exposed_value = self.accessible_value.as_deref().unwrap_or(&text);
 
         if state
             .editor
@@ -672,18 +712,19 @@ where
             builder.set_text_input_marked();
         }
 
-        if text.is_empty() {
+        if exposed_value.is_empty() {
             if let Some(placeholder) = &self.placeholder {
                 builder.set_placeholder(&*placeholder.clone().into_owned());
             }
         } else {
-            builder.set_value(text.as_str());
+            builder.set_value(exposed_value);
         }
 
         // Create TextRun child for text range support, enabling
         // character-by-character and word-level feedback on macOS VoiceOver.
         let text_run_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
+        state.accesskit_text_run_id.set(Some(text_run_id));
 
         let char_lengths: Vec<u8> = char_byte_lengths(&text);
         let word_starts: Vec<u8> = word_start_indices(&text);
@@ -723,9 +764,18 @@ where
 
         builder.push_child(text_run_id);
 
-        if self.on_edit.is_none() {
+        let is_disabled = self.on_edit.is_none() && !self.is_read_only;
+        let is_editable = self.on_edit.is_some() && !self.is_read_only;
+
+        if is_disabled {
             builder.set_disabled();
         } else {
+            builder.add_action(accesskit::Action::SetTextSelection);
+        }
+
+        if self.is_read_only {
+            builder.set_read_only();
+        } else if is_editable {
             builder.add_action(accesskit::Action::ReplaceSelectedText);
             builder.add_action(accesskit::Action::SetValue);
         }
@@ -769,7 +819,8 @@ where
         if matches!(
             action.action,
             accesskit::Action::ReplaceSelectedText | accesskit::Action::SetValue
-        ) {
+        ) && !self.is_read_only
+        {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_edit) = &self.on_edit {
@@ -780,6 +831,46 @@ where
                     }
                 }
             }
+        } else if action.action == accesskit::Action::SetTextSelection
+            && (self.on_edit.is_some() || self.is_read_only)
+        {
+            let Some(accesskit::ActionData::SetTextSelection(selection)) = &action.data else {
+                return;
+            };
+            let state = tree.state.downcast_mut::<State<Highlighter>>();
+
+            if state
+                .editor
+                .preedit()
+                .is_some_and(|preedit| !preedit.content.is_empty())
+            {
+                return;
+            }
+
+            let Some(text_run_id) = state.accesskit_text_run_id.get() else {
+                return;
+            };
+
+            if selection.anchor.node != text_run_id || selection.focus.node != text_run_id {
+                return;
+            }
+
+            let text = self.content.text();
+            let length = char_byte_lengths(&text).len();
+            let anchor = selection.anchor.character_index.min(length);
+            let focus = selection.focus.character_index.min(length);
+            let cursor = Cursor {
+                position: grapheme_index_to_position(&text, focus),
+                selection: (anchor != focus).then(|| grapheme_index_to_position(&text, anchor)),
+            };
+
+            if let Some(on_edit) = &self.on_edit {
+                shell.publish((on_edit)(Action::SetSelection(cursor)));
+            } else if self.is_read_only {
+                self.content.0.borrow_mut().editor.move_to(cursor);
+            }
+
+            shell.request_redraw();
         } else if action.action == accesskit::Action::Focus {
             tree.state.downcast_mut::<State<Highlighter>>().editor.focus();
             shell.request_redraw();
@@ -1050,15 +1141,91 @@ fn word_start_indices(text: &str) -> Vec<u8> {
 
 #[cfg(feature = "accessibility")]
 fn line_col_byte_offset(text: &str, line: usize, index: usize) -> usize {
-    let mut offset = 0;
-    for (i, line_text) in text.lines().enumerate() {
-        if i == line {
-            offset += index;
-            break;
+    let bytes = text.as_bytes();
+    let mut line_index = 0;
+    let mut line_start = 0;
+    let mut pos = 0;
+
+    while pos < bytes.len() {
+        if matches!(bytes[pos], b'\r' | b'\n') {
+            if line_index == line {
+                return line_start + index.min(pos - line_start);
+            }
+
+            let first = bytes[pos];
+            pos += 1;
+
+            if pos < bytes.len() && matches!((first, bytes[pos]), (b'\r', b'\n') | (b'\n', b'\r')) {
+                pos += 1;
+            }
+
+            line_index += 1;
+            line_start = pos;
+        } else {
+            pos += 1;
         }
-        offset += line_text.len() + 1; // +1 for newline character
     }
-    offset.min(text.len())
+
+    if line_index == line {
+        line_start + index.min(text.len() - line_start)
+    } else {
+        text.len()
+    }
+}
+
+#[cfg(feature = "accessibility")]
+fn grapheme_index_to_position(text: &str, grapheme_index: usize) -> Position {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let byte_offset: usize = UnicodeSegmentation::graphemes(text, true)
+        .take(grapheme_index)
+        .map(str::len)
+        .sum();
+    let bytes = text.as_bytes();
+    let mut line = 0;
+    let mut line_start = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if matches!(bytes[index], b'\r' | b'\n') {
+            if byte_offset <= index {
+                return Position {
+                    line,
+                    index: byte_offset
+                        .saturating_sub(line_start)
+                        .min(index - line_start),
+                };
+            }
+
+            let first = bytes[index];
+            index += 1;
+
+            if index < bytes.len()
+                && matches!((first, bytes[index]), (b'\r', b'\n') | (b'\n', b'\r'))
+            {
+                index += 1;
+            }
+
+            if byte_offset < index {
+                return Position {
+                    line,
+                    index: index - line_start,
+                };
+            }
+
+            line += 1;
+            line_start = index;
+        } else {
+            index += 1;
+        }
+    }
+
+    Position {
+        line,
+        index: byte_offset
+            .saturating_sub(line_start)
+            .min(text.len() - line_start),
+    }
 }
 
 #[cfg(feature = "accessibility")]
@@ -1116,4 +1283,44 @@ fn byte_to_char_index(char_lengths: &[u8], byte_offset: usize) -> usize {
         accumulated += len as usize;
     }
     char_lengths.len()
+}
+
+#[cfg(all(test, feature = "accessibility"))]
+mod accessibility_tests {
+    use super::{Position, grapheme_index_to_position, line_col_byte_offset};
+
+    #[test]
+    fn positions_round_trip_across_emoji_and_crlf() {
+        let text = "a🦀\r\nbé";
+
+        assert_eq!(
+            grapheme_index_to_position(text, 1),
+            Position { line: 0, column: 1 }
+        );
+        assert_eq!(
+            grapheme_index_to_position(text, 3),
+            Position { line: 1, column: 0 }
+        );
+        assert_eq!(
+            grapheme_index_to_position(text, 4),
+            Position { line: 1, column: 1 }
+        );
+        assert_eq!(line_col_byte_offset(text, 0, 1), 1);
+        assert_eq!(line_col_byte_offset(text, 1, 1), 8);
+    }
+
+    #[test]
+    fn positions_round_trip_across_lf() {
+        let text = "ab\nçd";
+
+        assert_eq!(
+            grapheme_index_to_position(text, 3),
+            Position { line: 1, column: 0 }
+        );
+        assert_eq!(
+            grapheme_index_to_position(text, 4),
+            Position { line: 1, column: 2 }
+        );
+        assert_eq!(line_col_byte_offset(text, 1, 2), 5);
+    }
 }

@@ -414,6 +414,9 @@ impl editor::Editor for Editor {
                         );
                     }
                 }
+                Action::SetSelection(cursor) => {
+                    move_to(editor, cursor);
+                }
 
                 // Editing events
                 Action::Edit(edit) => {
@@ -607,24 +610,7 @@ impl editor::Editor for Editor {
 
     fn move_to(&mut self, cursor: Cursor) {
         self.with_internal_mut(|internal| {
-            // TODO: Expose `Affinity`
-            internal.editor.set_cursor(cosmic_text::Cursor {
-                line: cursor.position.line,
-                index: cursor.position.index,
-                affinity: cosmic_text::Affinity::Before,
-            });
-
-            if let Some(selection) = cursor.selection {
-                internal
-                    .editor
-                    .set_selection(cosmic_text::Selection::Normal(cosmic_text::Cursor {
-                        line: selection.line,
-                        index: selection.index,
-                        affinity: cosmic_text::Affinity::Before,
-                    }));
-            } else {
-                internal.editor.set_selection(cosmic_text::Selection::None);
-            }
+            move_to(&mut internal.editor, cursor);
         });
     }
 
@@ -1027,6 +1013,27 @@ fn visual_lines_offset(line: usize, buffer: &cosmic_text::Buffer) -> i32 {
     visual_lines_offset as i32 * if scroll.line < line { 1 } else { -1 }
 }
 
+fn move_to(editor: &mut cosmic_text::Editor<'_>, cursor: Cursor) {
+    // TODO: Expose `Affinity`
+    editor.set_cursor(cosmic_text::Cursor {
+        line: cursor.position.line,
+        index: cursor.position.index,
+        affinity: cosmic_text::Affinity::Before,
+    });
+
+    editor.set_selection(
+        cursor
+            .selection
+            .map_or(cosmic_text::Selection::None, |selection| {
+                cosmic_text::Selection::Normal(cosmic_text::Cursor {
+                    line: selection.line,
+                    index: selection.index,
+                    affinity: cosmic_text::Affinity::Before,
+                })
+            }),
+    );
+}
+
 fn to_motion(motion: Motion) -> cosmic_text::Motion {
     match motion {
         Motion::Left => cosmic_text::Motion::Left,
@@ -1127,5 +1134,24 @@ impl History {
         self.changes.truncate(self.current);
         self.changes.push(change);
         self.current += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Editor;
+    use crate::core::text::editor::{Action, Cursor, Editor as _, Position};
+
+    #[test]
+    fn set_selection_action_moves_cursor_and_anchor() {
+        let mut editor = Editor::with_text("abc");
+        let cursor = Cursor {
+            position: Position { line: 0, index: 3 },
+            selection: Some(Position { line: 0, index: 1 }),
+        };
+
+        editor.perform(Action::SetSelection(cursor));
+
+        assert_eq!(editor.cursor(), cursor);
     }
 }

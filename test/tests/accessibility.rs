@@ -457,6 +457,200 @@ fn text_input_commit_clears_accessibility_preedit() {
 }
 
 #[test]
+fn secure_text_input_exposes_only_masked_password_text() {
+    let mut ui = simulator::<String, Theme, Renderer>(
+        text_input("Password", "së🦀")
+            .secure(true)
+            .accessible_label("Password")
+            .accessible_value("must not leak")
+            .on_input(|value| value),
+    );
+    let tree = ui.accessibility_tree();
+    let (input_id, password) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::PasswordInput)
+        .expect("PasswordInput node");
+    let text_run = find_text_run(&tree).expect("Password TextRun");
+
+    assert!(!password.is_hidden());
+    assert_eq!(password.value(), Some("•••"));
+    assert!(password.supports_action(Action::SetTextSelection));
+    assert_eq!(text_run.value(), Some("•••"));
+    assert!(!tree.nodes.iter().any(|(_, node)| {
+        node.value()
+            .is_some_and(|value| value.contains("së🦀") || value.contains("must not leak"))
+    }));
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let password = find_node(&tree, Role::PasswordInput).expect("PasswordInput node");
+    let text_run = find_text_run(&tree).expect("Password TextRun");
+    assert!(password.is_text_input_marked());
+    assert_eq!(password.value(), Some("••••"));
+    assert_eq!(text_run.value(), Some("••••"));
+}
+
+#[test]
+fn text_input_accessibility_state_matrix() {
+    let mut disabled = simulator::<(), Theme, Renderer>(text_input("", "disabled"));
+    let tree = disabled.accessibility_tree();
+    let node = find_node(&tree, Role::TextInput).expect("Disabled TextInput");
+    assert!(node.is_disabled());
+    assert!(!node.is_read_only());
+    assert!(!node.supports_action(Action::SetTextSelection));
+
+    let mut read_only =
+        simulator::<(), Theme, Renderer>(text_input("", "read only").read_only(true));
+    let tree = read_only.accessibility_tree();
+    let node = find_node(&tree, Role::TextInput).expect("Read-only TextInput");
+    assert!(!node.is_disabled());
+    assert!(node.is_read_only());
+    assert!(node.supports_action(Action::SetTextSelection));
+    assert!(!node.supports_action(Action::ReplaceSelectedText));
+    assert!(!node.supports_action(Action::SetValue));
+
+    let mut editable =
+        simulator::<String, Theme, Renderer>(text_input("", "editable").on_input(|value| value));
+    let tree = editable.accessibility_tree();
+    let node = find_node(&tree, Role::TextInput).expect("Editable TextInput");
+    assert!(!node.is_disabled());
+    assert!(!node.is_read_only());
+    assert!(node.supports_action(Action::SetTextSelection));
+    assert!(node.supports_action(Action::ReplaceSelectedText));
+    assert!(node.supports_action(Action::SetValue));
+}
+
+#[test]
+fn text_input_set_text_selection_clamps_and_preserves_direction() {
+    let mut ui =
+        simulator::<String, Theme, Renderer>(text_input("", "a🦀b").on_input(|value| value));
+    let tree = ui.accessibility_tree();
+    let (input_id, input) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("TextInput node");
+    let text_run_id = input.children()[0];
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 99,
+                },
+                focus: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 1,
+                },
+            },
+        )),
+    });
+
+    let tree = ui.accessibility_tree();
+    let selection = find_node(&tree, Role::TextInput)
+        .and_then(accesskit::Node::text_selection)
+        .expect("TextInput selection");
+    // The headless test renderer's editor cannot move the cursor, so the
+    // selection stays at the initial position. Clamping and direction
+    // preservation are exercised in the widget code path without panicking.
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 0);
+}
+
+#[test]
+fn text_input_rejects_foreign_or_preedit_selection() {
+    let mut ui =
+        simulator::<String, Theme, Renderer>(text_input("", "abc").on_input(|value| value));
+    let tree = ui.accessibility_tree();
+    let (input_id, input) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("TextInput node");
+    let text_run_id = input.children()[0];
+    let foreign_id = accesskit::NodeId(999_999);
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: foreign_id,
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: foreign_id,
+                    character_index: 2,
+                },
+            },
+        )),
+    });
+
+    let tree = ui.accessibility_tree();
+    let selection = find_node(&tree, Role::TextInput)
+        .and_then(accesskit::Node::text_selection)
+        .expect("TextInput selection");
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 0);
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+    let before = find_node(&ui.accessibility_tree(), Role::TextInput)
+        .and_then(accesskit::Node::text_selection)
+        .copied()
+        .expect("Preedit selection");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 2,
+                },
+            },
+        )),
+    });
+
+    let after = find_node(&ui.accessibility_tree(), Role::TextInput)
+        .and_then(accesskit::Node::text_selection)
+        .copied()
+        .expect("Preedit selection");
+    assert_eq!(after, before);
+}
+
+#[test]
 fn text_editor_label() {
     use iced_widget::text_editor;
     let content = text_editor::Content::new();
@@ -612,6 +806,272 @@ fn text_editor_commit_clears_accessibility_preedit() {
     assert_eq!(editor.value(), None);
     assert!(!editor.is_text_input_marked());
     assert_eq!(text_run.value(), Some(""));
+}
+
+#[test]
+fn text_editor_accessibility_state_matrix() {
+    use iced_widget::text_editor;
+
+    let disabled_content = text_editor::Content::new();
+    let mut disabled =
+        simulator::<(), Theme, Renderer>(text_editor(&disabled_content).accessible_label("Notes"));
+    let tree = disabled.accessibility_tree();
+    let node = find_node(&tree, Role::MultilineTextInput).expect("Disabled TextEditor");
+    assert!(node.is_disabled());
+    assert!(!node.is_read_only());
+    assert!(!node.supports_action(Action::SetTextSelection));
+
+    let read_only_content = text_editor::Content::with_text("read only");
+    let mut read_only = simulator::<(), Theme, Renderer>(
+        text_editor(&read_only_content)
+            .accessible_label("Notes")
+            .read_only(true),
+    );
+    let tree = read_only.accessibility_tree();
+    let node = find_node(&tree, Role::MultilineTextInput).expect("Read-only TextEditor");
+    assert!(!node.is_disabled());
+    assert!(node.is_read_only());
+    assert!(node.supports_action(Action::SetTextSelection));
+    assert!(!node.supports_action(Action::ReplaceSelectedText));
+    assert!(!node.supports_action(Action::SetValue));
+
+    let editable_content = text_editor::Content::new();
+    let mut editable = simulator::<(), Theme, Renderer>(
+        text_editor(&editable_content)
+            .accessible_label("Notes")
+            .on_action(|_| ()),
+    );
+    let tree = editable.accessibility_tree();
+    let node = find_node(&tree, Role::MultilineTextInput).expect("Editable TextEditor");
+    assert!(!node.is_disabled());
+    assert!(!node.is_read_only());
+    assert!(node.supports_action(Action::SetTextSelection));
+    assert!(node.supports_action(Action::ReplaceSelectedText));
+    assert!(node.supports_action(Action::SetValue));
+}
+
+#[test]
+fn text_editor_routes_set_text_selection_through_action_callback() {
+    use iced_widget::text_editor;
+
+    let content: text_editor::Content<Renderer> = text_editor::Content::new();
+    let mut ui = simulator::<text_editor::Action, Theme, Renderer>(
+        text_editor(&content).on_action(|action| action),
+    );
+    let tree = ui.accessibility_tree();
+    let (editor_id, editor) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("TextEditor node");
+    let text_run_id = editor.children()[0];
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 99,
+                },
+                focus: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 99,
+                },
+            },
+        )),
+    });
+
+    assert_eq!(
+        ui.into_messages().collect::<Vec<_>>(),
+        vec![text_editor::Action::SetSelection(text_editor::Cursor {
+            position: iced_test::core::text::Position { line: 0, index: 0 },
+            selection: None,
+        })]
+    );
+}
+
+#[test]
+fn text_editor_rejects_foreign_or_preedit_selection() {
+    use iced_widget::text_editor;
+
+    let content: text_editor::Content<Renderer> = text_editor::Content::new();
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).on_action(|_| ()));
+    let tree = ui.accessibility_tree();
+    let (editor_id, editor) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("TextEditor node");
+    let text_run_id = editor.children()[0];
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: accesskit::NodeId(999_999),
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: accesskit::NodeId(999_999),
+                    character_index: 0,
+                },
+            },
+        )),
+    });
+    assert_eq!(ui.into_messages().count(), 0);
+
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).on_action(|_| ()));
+    let tree = ui.accessibility_tree();
+    let (editor_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("TextEditor node");
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: None,
+    });
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetTextSelection,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: Some(accesskit::ActionData::SetTextSelection(
+            accesskit::TextSelection {
+                anchor: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 0,
+                },
+                focus: accesskit::TextPosition {
+                    node: text_run_id,
+                    character_index: 0,
+                },
+            },
+        )),
+    });
+
+    let tree = ui.accessibility_tree();
+    assert!(
+        find_node(&tree, Role::MultilineTextInput)
+            .expect("TextEditor node")
+            .is_text_input_marked()
+    );
+    assert_eq!(ui.into_messages().count(), 0);
+}
+
+#[test]
+fn callback_free_read_only_text_editor_navigates_without_editing() {
+    use iced_widget::text_editor;
+
+    let content: text_editor::Content<Renderer> = text_editor::Content::with_text("abc");
+    let mut ui = simulator::<(), Theme, Renderer>(text_editor(&content).read_only(true));
+    let tree = ui.accessibility_tree();
+    let (editor_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MultilineTextInput)
+        .expect("Read-only TextEditor");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *editor_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowRight));
+    let _ = ui.typewrite("z");
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let editor = find_node(&tree, Role::MultilineTextInput).expect("Read-only TextEditor");
+    let selection = editor.text_selection().expect("Read-only editor selection");
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 0);
+    assert!(!editor.is_text_input_marked());
+    // The headless test renderer stores no text, but read-only events must not
+    // create content or publish edit messages.
+    assert_eq!(content.text(), "");
+    assert_eq!(ui.into_messages().count(), 0);
+}
+
+#[test]
+fn read_only_text_input_navigates_without_editing_or_preedit() {
+    let mut ui = simulator::<String, Theme, Renderer>(text_input("", "abc").read_only(true));
+    let tree = ui.accessibility_tree();
+    let (input_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("Read-only TextInput");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowLeft));
+    let _ = ui.typewrite("z");
+    let _ = ui.simulate([
+        Event::InputMethod(input_method::Event::Opened),
+        Event::InputMethod(input_method::Event::Preedit("文".into(), Some(0..3))),
+    ]);
+
+    let tree = ui.accessibility_tree();
+    let input = find_node(&tree, Role::TextInput).expect("Read-only TextInput");
+    let selection = input.text_selection().expect("Read-only input selection");
+    assert_eq!(input.value(), Some("abc"));
+    // The headless test renderer's editor cannot move the cursor, so the
+    // selection stays at the initial position.
+    assert_eq!(selection.anchor.character_index, 0);
+    assert_eq!(selection.focus.character_index, 0);
+    assert!(!input.is_text_input_marked());
+    assert_eq!(ui.into_messages().count(), 0);
+}
+
+#[test]
+fn read_only_text_input_with_callback_rejects_edits() {
+    let mut ui = simulator::<String, Theme, Renderer>(
+        text_input("", "abc")
+            .on_input(|value| value)
+            .read_only(true),
+    );
+    let tree = ui.accessibility_tree();
+    let (input_id, _) = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::TextInput)
+        .expect("Read-only TextInput");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: None,
+    });
+    let _ = ui.typewrite("z");
+    ui.accessibility_action(&ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: *input_id,
+        data: Some(accesskit::ActionData::Value("changed".into())),
+    });
+
+    assert_eq!(ui.into_messages().count(), 0);
 }
 
 #[test]

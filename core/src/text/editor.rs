@@ -132,6 +132,8 @@ pub enum Action {
     SelectLine,
     /// Select the entire buffer.
     SelectAll,
+    /// Set the cursor and selection to an exact position.
+    SetSelection(Cursor),
     /// Perform an [`Edit`].
     Edit(Edit),
     /// Click the [`Editor`] at the given [`Point`].

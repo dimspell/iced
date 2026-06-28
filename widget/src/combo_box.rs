@@ -824,7 +824,6 @@ where
                 let selected_option = (!selection.is_empty())
                     .then(|| {
                         filtered_options
-                            .options
                             .iter()
                             .position(|option| option.to_string() == selection)
                     })

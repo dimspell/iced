@@ -48,6 +48,9 @@ use crate::core::{
     Size, Theme, Widget,
 };
 
+#[cfg(feature = "accessibility")]
+use std::cell::Cell;
+
 /// A field that can be filled with text.
 ///
 /// # Example
@@ -89,6 +92,7 @@ where
     placeholder: text::Fragment<'a>,
     value: text::Fragment<'a>,
     is_secure: bool,
+    is_read_only: bool,
     font: Option<Renderer::Font>,
     width: Length,
     height: Length,
@@ -127,6 +131,7 @@ where
             placeholder: placeholder.into_fragment(),
             value: value.into_fragment(),
             is_secure: false,
+            is_read_only: false,
             font: None,
             width: Length::Fill,
             height: Length::Fit,
@@ -155,6 +160,15 @@ where
     /// Converts the [`TextInput`] into a secure password input.
     pub fn secure(mut self, is_secure: bool) -> Self {
         self.is_secure = is_secure;
+        self
+    }
+
+    /// Sets whether the [`TextInput`] is read-only.
+    ///
+    /// A read-only input can still be focused, navigated, selected, and copied,
+    /// but its value cannot be edited.
+    pub fn read_only(mut self, is_read_only: bool) -> Self {
+        self.is_read_only = is_read_only;
         self
     }
 
@@ -378,12 +392,13 @@ where
         tree.set_accesskit_node_id(id);
         *id_counter += 1;
 
-        let mut builder = accesskit::Node::new(accesskit::Role::TextInput);
+        let role = if self.is_secure {
+            accesskit::Role::PasswordInput
+        } else {
+            accesskit::Role::TextInput
+        };
+        let mut builder = accesskit::Node::new(role);
         crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
-
-        if self.is_secure {
-            builder.set_hidden();
-        }
 
         crate::core::accessibility::apply_metadata(
             &mut builder,
@@ -394,10 +409,7 @@ where
 
         // Use placeholder as name if value is empty
         let state = tree.state.downcast_ref::<State<Renderer>>();
-        let committed_text = self
-            .accessible_value
-            .clone()
-            .unwrap_or_else(|| self.value.to_string());
+        let committed_text = self.value.to_string();
 
         let cursor = state.input.cursor();
         let committed_char_lengths = char_byte_lengths(&committed_text);
@@ -415,8 +427,18 @@ where
             })
             .unwrap_or(cursor_char);
 
-        let (text, sel_char, cursor_char) =
+        let (mut text, sel_char, cursor_char) =
             text_with_preedit(committed_text, state.input.preedit(), sel_char, cursor_char);
+
+        if self.is_secure {
+            text = secure_text(&text);
+        }
+
+        let exposed_value = if self.is_secure {
+            text.as_str()
+        } else {
+            self.accessible_value.as_deref().unwrap_or(&text)
+        };
 
         if state
             .input
@@ -426,18 +448,19 @@ where
             builder.set_text_input_marked();
         }
 
-        if text.is_empty() {
+        if exposed_value.is_empty() {
             if !self.placeholder.is_empty() {
                 builder.set_placeholder(&*self.placeholder.clone().into_owned());
             }
         } else {
-            builder.set_value(text.as_str());
+            builder.set_value(exposed_value);
         }
 
         // Create TextRun child for text range support, enabling
         // character-by-character and word-level feedback on macOS VoiceOver.
         let text_run_id = accesskit::NodeId(*id_counter);
         *id_counter += 1;
+        state.accesskit_text_run_id.set(Some(text_run_id));
 
         let char_lengths: Vec<u8> = char_byte_lengths(&text);
         let word_starts: Vec<u8> = word_start_indices(&text);
@@ -459,9 +482,18 @@ where
 
         builder.push_child(text_run_id);
 
-        if self.on_input.is_none() {
+        let is_disabled = self.on_input.is_none() && !self.is_read_only;
+        let is_editable = self.on_input.is_some() && !self.is_read_only;
+
+        if is_disabled {
             builder.set_disabled();
         } else {
+            builder.add_action(accesskit::Action::SetTextSelection);
+        }
+
+        if self.is_read_only {
+            builder.set_read_only();
+        } else if is_editable {
             builder.add_action(accesskit::Action::ReplaceSelectedText);
             builder.add_action(accesskit::Action::SetValue);
         }
@@ -500,7 +532,8 @@ where
         if matches!(
             action.action,
             accesskit::Action::ReplaceSelectedText | accesskit::Action::SetValue
-        ) {
+        ) && !self.is_read_only
+        {
             if let Some(data) = &action.data {
                 if let accesskit::ActionData::Value(value) = data {
                     if let Some(on_input) = &self.on_input {
@@ -509,6 +542,42 @@ where
                     }
                 }
             }
+        } else if action.action == accesskit::Action::SetTextSelection
+            && (self.on_input.is_some() || self.is_read_only)
+        {
+            let Some(accesskit::ActionData::SetTextSelection(selection)) = &action.data else {
+                return;
+            };
+            let state = tree.state.downcast_mut::<State<Renderer>>();
+
+            if state
+                .input
+                .preedit()
+                .is_some_and(|preedit| !preedit.content.is_empty())
+            {
+                return;
+            }
+
+            let Some(text_run_id) = state.accesskit_text_run_id.get() else {
+                return;
+            };
+
+            if selection.anchor.node != text_run_id || selection.focus.node != text_run_id {
+                return;
+            }
+
+            let value = self.value.to_string();
+            let length = char_byte_lengths(&value).len();
+            let anchor = selection.anchor.character_index.min(length);
+            let focus = selection.focus.character_index.min(length);
+
+            operation::TextInput::select_range(
+                &mut state.input,
+                grapheme_index_to_position(&value, anchor),
+                grapheme_index_to_position(&value, focus),
+            );
+
+            shell.request_redraw();
         } else if action.action == accesskit::Action::Focus {
             tree.state
                 .downcast_mut::<State<Renderer>>()
@@ -528,22 +597,26 @@ where
         _viewport: &Rectangle,
     ) {
         let state = state::<Renderer>(tree);
-        let is_disabled = self.on_input.is_none();
+        let is_disabled = self.on_input.is_none() && !self.is_read_only;
 
         if let Some(on_input) = &self.on_input {
-            let edit = state
-                .input
-                .update(event, layout.bounds(), cursor, shell, |key_press| {
-                    if let Some(on_submit) = &self.on_submit
-                        && key_press.is_focused
-                        && key_press.modified_key
-                            == keyboard::Key::Named(keyboard::key::Named::Enter)
-                    {
-                        return Some(editor::Binding::Custom(on_submit.clone()));
-                    }
+let edit = if self.is_read_only {
+                None
+            } else {
+                state
+                    .input
+                    .update(event, layout.bounds(), cursor, shell, |key_press| {
+                        if let Some(on_submit) = &self.on_submit
+                            && key_press.is_focused
+                            && key_press.modified_key
+                                == keyboard::Key::Named(keyboard::key::Named::Enter)
+                        {
+                            return Some(editor::Binding::Custom(on_submit.clone()));
+                        }
 
-                    editor::Binding::from_key_press(key_press)
-                });
+                        editor::Binding::from_key_press(key_press)
+                    })
+            };
 
             if let Some(edit) = edit {
                 let on_input = if let Some(on_paste) = &self.on_paste
@@ -631,7 +704,7 @@ where
         _renderer: &Renderer,
     ) -> mouse::Interaction {
         if cursor.is_over(layout.bounds()) {
-            if self.on_input.is_none() {
+            if self.on_input.is_none() && !self.is_read_only {
                 mouse::Interaction::Idle
             } else {
                 mouse::Interaction::Text
@@ -661,6 +734,8 @@ struct State<R: text::Renderer> {
     input: text::Input<R>,
     value: String,
     transaction: Option<shell::Tracking>,
+    #[cfg(feature = "accessibility")]
+    accesskit_text_run_id: Cell<Option<accesskit::NodeId>>,
 }
 
 fn state<Renderer: text::Renderer + 'static>(tree: &mut Tree) -> &mut State<Renderer> {
@@ -674,6 +749,8 @@ impl<R: text::Renderer> State<R> {
             input: text::Input::new(),
             value: String::new(),
             transaction: None,
+            #[cfg(feature = "accessibility")]
+            accesskit_text_run_id: Cell::new(None),
         }
     }
 }
@@ -859,6 +936,68 @@ fn line_col_byte_offset(text: &str, line: usize, index: usize) -> usize {
         offset += line_text.len() + 1; // +1 for newline character
     }
     offset.min(text.len())
+}
+
+#[cfg(feature = "accessibility")]
+fn secure_text(text: &str) -> String {
+    unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
+        .map(|_| "•")
+        .collect()
+}
+
+#[cfg(feature = "accessibility")]
+fn grapheme_index_to_position(text: &str, grapheme_index: usize) -> text::Position {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let byte_offset: usize = UnicodeSegmentation::graphemes(text, true)
+        .take(grapheme_index)
+        .map(str::len)
+        .sum();
+    let bytes = text.as_bytes();
+    let mut line = 0;
+    let mut line_start = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if matches!(bytes[index], b'\r' | b'\n') {
+            if byte_offset <= index {
+                return text::Position {
+                    line,
+                    index: byte_offset
+                        .saturating_sub(line_start)
+                        .min(index - line_start),
+                };
+            }
+
+            let first = bytes[index];
+            index += 1;
+
+            if index < bytes.len()
+                && matches!((first, bytes[index]), (b'\r', b'\n') | (b'\n', b'\r'))
+            {
+                index += 1;
+            }
+
+            if byte_offset < index {
+                return text::Position {
+                    line,
+                    index: index - line_start,
+                };
+            }
+
+            line += 1;
+            line_start = index;
+        } else {
+            index += 1;
+        }
+    }
+
+    text::Position {
+        line,
+        index: byte_offset
+            .saturating_sub(line_start)
+            .min(text.len() - line_start),
+    }
 }
 
 #[cfg(feature = "accessibility")]
