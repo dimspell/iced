@@ -687,10 +687,11 @@ where
                 let has_tooltip = overlay_nodes
                     .iter()
                     .any(|(_, n)| n.role() == accesskit::Role::Tooltip);
-                let popup_active_descendant = overlay_nodes
+                let popup = overlay_nodes
                     .iter()
                     .find(|(_, n)| n.role() == accesskit::Role::MenuListPopup)
-                    .and_then(|(_, n)| n.active_descendant());
+                    .map(|(id, node)| (*id, node.active_descendant()));
+                let popup_active_descendant = popup.and_then(|(_, active)| active);
 
                 let popup_parent_id = if has_menu_popup {
                     nodes[..overlay_start]
@@ -724,7 +725,7 @@ where
                     }
 
                     parent_node.set_children(children);
-                    parent_node.set_controls(&[overlay_root_id]);
+                    parent_node.set_controls(&[popup.map_or(overlay_root_id, |(id, _)| id)]);
 
                     if let Some(active_descendant) = popup_active_descendant {
                         parent_node.set_active_descendant(active_descendant);

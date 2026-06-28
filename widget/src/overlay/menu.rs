@@ -18,6 +18,7 @@ use crate::core::{
 };
 use crate::core::{Element, Shell, Widget};
 use crate::scrollable::{self, Scrollable};
+use std::cell::Cell;
 
 /// A list of selectable options.
 pub struct Menu<'a, 'b, T, Message, Theme = crate::Theme, Renderer = crate::Renderer>
@@ -156,6 +157,7 @@ where
 #[derive(Debug)]
 pub struct State {
     tree: Tree,
+    scroll_to_option: Cell<Option<usize>>,
 }
 
 impl State {
@@ -163,7 +165,12 @@ impl State {
     pub fn new() -> Self {
         Self {
             tree: Tree::empty(),
+            scroll_to_option: Cell::new(None),
         }
+    }
+
+    pub(crate) fn scroll_to_option(&self, index: usize) {
+        self.scroll_to_option.set(Some(index));
     }
 }
 
@@ -181,7 +188,9 @@ where
     position: Point,
     viewport: Rectangle,
     tree: &'a mut Tree,
+    scroll_to_option: &'a Cell<Option<usize>>,
     list: Scrollable<'a, Message, Theme, Renderer>,
+    option_count: usize,
     width: f32,
     target_height: f32,
     class: &'a <Theme as Catalog>::Class<'b>,
@@ -221,11 +230,17 @@ where
             ellipsis,
             class,
         } = menu;
+        let State {
+            tree,
+            scroll_to_option,
+        } = state;
+        let option_count = options.len();
 
         let mut list = Scrollable::new(List {
             options,
             hovered_option,
             selected_option,
+            scroll_to_option,
             to_string,
             on_selected,
             on_option_hovered,
@@ -239,13 +254,15 @@ where
         })
         .height(menu_height);
 
-        state.tree.diff(&mut list as &mut dyn Widget<_, _, _>);
+        tree.diff(&mut list as &mut dyn Widget<_, _, _>);
 
         Self {
             position,
             viewport,
-            tree: &mut state.tree,
+            tree,
+            scroll_to_option,
             list,
+            option_count,
             width,
             target_height,
             class,
@@ -277,6 +294,23 @@ where
         .width(self.width);
 
         let node = self.list.layout(self.tree, renderer, &limits);
+
+        if let Some(index) = self.scroll_to_option.take()
+            && self.option_count > 0
+        {
+            let layout = Layout::new(&node);
+            let content_bounds = layout.children().next().unwrap().bounds();
+            let option_height = content_bounds.height / self.option_count as f32;
+            let target = Rectangle {
+                x: content_bounds.x,
+                y: content_bounds.y + option_height * index.min(self.option_count - 1) as f32,
+                width: content_bounds.width,
+                height: option_height,
+            };
+
+            self.list.scroll_to_rectangle(self.tree, layout, target);
+        }
+
         let size = node.size();
 
         node.move_to(if space_below > space_above {
@@ -368,6 +402,7 @@ where
     options: &'a [T],
     hovered_option: &'a mut Option<usize>,
     selected_option: Option<usize>,
+    scroll_to_option: &'a Cell<Option<usize>>,
     to_string: &'a dyn Fn(&T) -> String,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -704,6 +739,7 @@ where
 
             if let Some(index) = index {
                 *self.hovered_option = Some(index);
+                self.scroll_to_option.set(Some(index));
 
                 if let Some(on_option_hovered) = self.on_option_hovered
                     && let Some(option) = self.options.get(index)
@@ -712,6 +748,7 @@ where
                 }
 
                 shell.request_redraw();
+                shell.invalidate_layout();
             }
         }
     }

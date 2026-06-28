@@ -22,6 +22,23 @@ fn has_non_empty_bounds(node: &accesskit::Node) -> bool {
         .is_some_and(|bounds| bounds.x1 > bounds.x0 && bounds.y1 > bounds.y0)
 }
 
+fn active_descendant_label<'a>(
+    tree: &'a accesskit::TreeUpdate,
+    owner_id: accesskit::NodeId,
+) -> Option<&'a str> {
+    let active = tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == owner_id)?
+        .1
+        .active_descendant()?;
+
+    tree.nodes
+        .iter()
+        .find(|(id, _)| *id == active)
+        .and_then(|(_, node)| node.label())
+}
+
 fn find_text_run<'a>(tree: &'a accesskit::TreeUpdate) -> Option<&'a accesskit::Node> {
     find_node(tree, Role::TextRun)
 }
@@ -39,11 +56,23 @@ fn assert_popup_attached_to_expanded_combo_box(tree: &accesskit::TreeUpdate) {
         .find(|(_, node)| node.role() == Role::MenuListPopup)
         .expect("MenuListPopup node");
 
+    assert_eq!(
+        combo_node.controls(),
+        &[*popup_id],
+        "Expanded ComboBox should directly control its popup"
+    );
+
     let overlay_root_id = combo_node
-        .controls()
-        .first()
+        .children()
+        .iter()
         .copied()
-        .expect("Controlled overlay root");
+        .find(|child_id| {
+            tree.nodes
+                .iter()
+                .find(|(id, _)| id == child_id)
+                .is_some_and(|(_, node)| node.children().contains(popup_id))
+        })
+        .expect("Attached overlay root");
 
     let (_, overlay_root_node) = tree
         .nodes
@@ -54,11 +83,6 @@ fn assert_popup_attached_to_expanded_combo_box(tree: &accesskit::TreeUpdate) {
     assert!(
         combo_node.children().contains(&overlay_root_id),
         "Expanded ComboBox {combo_id:?} should contain overlay root {overlay_root_id:?}"
-    );
-    assert_eq!(
-        combo_node.controls(),
-        &[overlay_root_id],
-        "Expanded ComboBox should expose its overlay root via controls"
     );
     assert!(
         overlay_root_node.children().contains(popup_id),
@@ -1140,12 +1164,9 @@ fn slider_increment_targets_only_requested_slider() {
 
 #[test]
 fn picklist_menu_options_visible_when_open() {
-    let options = vec!["Option A", "Option B", "Option C"];
+    let options = vec!["Cat", "Dog", "Bird", "Fish"];
     let mut ui = simulator::<(), Theme, Renderer>(
-        pick_list(Some("Option A"), options.as_slice(), |s: &&str| {
-            s.to_string()
-        })
-        .on_select(|_| ()),
+        pick_list(Some("Cat"), options.as_slice(), |s: &&str| s.to_string()).on_select(|_| ()),
     );
 
     // Click to open the dropdown — PickList should start at origin
@@ -1164,10 +1185,27 @@ fn picklist_menu_options_visible_when_open() {
 
     assert_eq!(
         items.len(),
-        3,
-        "Should have 3 MenuListOption nodes when dropdown is open"
+        4,
+        "Should have 4 MenuListOption nodes when dropdown is open"
     );
-    assert_eq!(items[0].label(), Some("Option A"));
+    assert_eq!(
+        items
+            .iter()
+            .filter_map(|item| item.label())
+            .collect::<Vec<_>>(),
+        options
+    );
+    assert_eq!(items[0].is_selected(), Some(true));
+    assert!(
+        items[1..]
+            .iter()
+            .all(|item| item.is_selected() == Some(false))
+    );
+    assert!(items.windows(2).all(|items| {
+        let first = items[0].bounds().expect("First option bounds");
+        let second = items[1].bounds().expect("Second option bounds");
+        first.y1 <= second.y0
+    }));
     assert!(items[0].supports_action(accesskit::Action::Click));
 }
 
@@ -1398,6 +1436,327 @@ fn picklist_accessibility_actions_publish_open_and_close_messages() {
         ui.into_messages().collect::<Vec<_>>(),
         vec!["opened", "closed"]
     );
+}
+
+#[test]
+fn picklist_open_keyboard_navigation_reaches_every_option_without_wrapping() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let tree = ui.accessibility_tree();
+    let combo_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .expect("PickList ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+    assert_eq!(
+        active_descendant_label(&ui.accessibility_tree(), combo_id),
+        Some("Cat")
+    );
+
+    for expected in ["Dog", "Bird", "Fish"] {
+        let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowDown));
+        assert_eq!(
+            active_descendant_label(&ui.accessibility_tree(), combo_id),
+            Some(expected)
+        );
+    }
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowDown));
+    assert_eq!(
+        active_descendant_label(&ui.accessibility_tree(), combo_id),
+        Some("Fish")
+    );
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowUp));
+    assert_eq!(
+        active_descendant_label(&ui.accessibility_tree(), combo_id),
+        Some("Bird")
+    );
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Home));
+    assert_eq!(
+        active_descendant_label(&ui.accessibility_tree(), combo_id),
+        Some("Cat")
+    );
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::End));
+    assert_eq!(
+        active_descendant_label(&ui.accessibility_tree(), combo_id),
+        Some("Fish")
+    );
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowUp));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+
+    let tree = ui.accessibility_tree();
+    assert_eq!(tree.focus, combo_id);
+    assert!(
+        tree.nodes
+            .iter()
+            .all(|(_, node)| node.role() != Role::MenuListOption)
+    );
+    assert_eq!(ui.into_messages().collect::<Vec<_>>(), vec!["Bird"]);
+}
+
+#[test]
+fn picklist_space_commits_middle_option() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let combo_id = ui
+        .accessibility_tree()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .unwrap();
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Space));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowDown));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowDown));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Space));
+
+    assert_eq!(ui.into_messages().collect::<Vec<_>>(), vec!["Bird"]);
+}
+
+#[test]
+fn picklist_escape_cancels_and_tab_closes_before_focus_moves() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<&str, Theme, Renderer>(column![
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|_| "selected")
+        .on_close("closed"),
+        button("Next").on_press("button")
+    ]);
+    let tree = ui.accessibility_tree();
+    let combo_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .unwrap();
+    let button_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::Button)
+        .map(|(id, _)| *id)
+        .unwrap();
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowDown));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Escape));
+    assert_eq!(ui.accessibility_tree().focus, combo_id);
+
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    assert_eq!(ui.accessibility_tree().focus, button_id);
+    assert_eq!(
+        ui.into_messages().collect::<Vec<_>>(),
+        vec!["closed", "closed"]
+    );
+}
+
+#[test]
+fn picklist_closed_left_right_changes_values_without_opening() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let combo_id = ui
+        .accessibility_tree()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .unwrap();
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+
+    for key in [
+        keyboard::key::Named::ArrowRight,
+        keyboard::key::Named::ArrowRight,
+        keyboard::key::Named::ArrowLeft,
+    ] {
+        let _ = ui.tap_key(keyboard::Key::Named(key));
+        let tree = ui.accessibility_tree();
+        let combo = tree.nodes.iter().find(|(id, _)| *id == combo_id).unwrap();
+        assert_eq!(combo.1.is_expanded(), Some(false));
+    }
+
+    assert_eq!(
+        ui.into_messages().collect::<Vec<_>>(),
+        vec!["Dog", "Bird", "Dog"]
+    );
+}
+
+#[test]
+fn picklist_closed_left_right_stops_at_boundaries_and_handles_no_selection() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut first = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = first.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = first.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowLeft));
+    assert_eq!(first.into_messages().count(), 0);
+
+    let mut last = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Fish"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = last.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = last.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowRight));
+    assert_eq!(last.into_messages().count(), 0);
+
+    let mut none_left = simulator::<String, Theme, Renderer>(
+        pick_list(None::<&str>, options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = none_left.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = none_left.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowLeft));
+    assert_eq!(none_left.into_messages().collect::<Vec<_>>(), vec!["Fish"]);
+
+    let mut none_right = simulator::<String, Theme, Renderer>(
+        pick_list(None::<&str>, options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = none_right.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = none_right.tap_key(keyboard::Key::Named(keyboard::key::Named::ArrowRight));
+    assert_eq!(none_right.into_messages().collect::<Vec<_>>(), vec!["Cat"]);
+}
+
+#[test]
+fn picklist_ignores_modified_left_right_keys() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+
+    for modifiers in [
+        keyboard::Modifiers::ACCESSIBILITY,
+        keyboard::Modifiers::SHIFT,
+        keyboard::Modifiers::CTRL,
+        keyboard::Modifiers::ALT,
+        keyboard::Modifiers::LOGO,
+    ] {
+        let key = keyboard::Key::Named(keyboard::key::Named::ArrowRight);
+        let _ = ui.simulate([Event::Keyboard(keyboard::Event::KeyPressed {
+            key: key.clone(),
+            modified_key: key,
+            physical_key: keyboard::key::Physical::Unidentified(
+                keyboard::key::NativeCode::Unidentified,
+            ),
+            location: keyboard::Location::Standard,
+            modifiers,
+            repeat: false,
+            text: None,
+        })]);
+    }
+
+    assert_eq!(ui.into_messages().count(), 0);
+}
+
+#[test]
+fn picklist_keyboard_navigation_scrolls_height_limited_menu() {
+    let options = ["Cat", "Dog", "Bird", "Fish"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Cat"), options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string())
+        .menu_height(40),
+    );
+    let combo_id = ui
+        .accessibility_tree()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .unwrap();
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::End));
+
+    let tree = ui.accessibility_tree();
+    let scrollable = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.scroll_y_max().is_some_and(|max| max > 0.0))
+        .map(|(_, node)| node)
+        .expect("Scrollable popup node");
+    assert!(scrollable.scroll_y().is_some_and(|offset| offset > 0.0));
+    assert_eq!(active_descendant_label(&tree, combo_id), Some("Fish"));
+}
+
+#[test]
+fn empty_picklist_does_not_open_from_keyboard() {
+    let options: [&str; 0] = [];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(None::<&str>, options.as_slice(), |option: &&str| {
+            option.to_string()
+        })
+        .on_select(|option| option.to_string()),
+    );
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Tab));
+    let _ = ui.tap_key(keyboard::Key::Named(keyboard::key::Named::Enter));
+
+    let tree = ui.accessibility_tree();
+    let combo = find_node(&tree, Role::ComboBox).unwrap();
+    assert_eq!(combo.is_expanded(), Some(false));
+    assert_eq!(ui.into_messages().count(), 0);
 }
 
 #[test]

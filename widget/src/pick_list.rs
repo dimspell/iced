@@ -456,6 +456,23 @@ where
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+        let options = self.options.borrow();
+        let selected = self.selected.as_ref().map(Borrow::borrow);
+        let selected_option = options.iter().position(|option| Some(option) == selected);
+
+        if state.last_selected_option != Some(selected_option) {
+            state.last_selected_option = Some(selected_option);
+            state.keyboard_selected_option = selected_option;
+        }
+
+        if options.is_empty() {
+            state.hovered_option = None;
+            state.keyboard_selected_option = None;
+        } else {
+            state.hovered_option = clamp_option(state.hovered_option, options.len());
+            state.keyboard_selected_option =
+                clamp_option(state.keyboard_selected_option, options.len());
+        }
 
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
@@ -470,21 +487,185 @@ where
                     }
 
                     shell.capture_event();
-                } else if cursor.is_over(layout.bounds()) {
-                    let selected = self.selected.as_ref().map(Borrow::borrow);
-
+                } else if cursor.is_over(layout.bounds()) && !options.is_empty() {
                     state.is_open = true;
-                    state.hovered_option = self
-                        .options
-                        .borrow()
-                        .iter()
-                        .position(|option| Some(option) == selected);
+                    state.hovered_option = selected_option.or((!options.is_empty()).then_some(0));
+                    state.menu.scroll_to_option(state.hovered_option.unwrap());
 
                     if let Some(on_open) = &self.on_open {
                         shell.publish(on_open.clone());
                     }
 
                     shell.capture_event();
+                }
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key),
+                modifiers,
+                ..
+            }) if state.is_focused && self.on_select.is_some() => {
+                let is_plain = modifiers.is_empty();
+
+                if state.is_open {
+                    match key {
+                        keyboard::key::Named::ArrowUp if is_plain => {
+                            if let Some(index) = state.hovered_option {
+                                state.hovered_option = Some(index.saturating_sub(1));
+                            } else if !options.is_empty() {
+                                state.hovered_option = Some(0);
+                            }
+
+                            if let Some(index) = state.hovered_option {
+                                state.menu.scroll_to_option(index);
+                            }
+
+                            shell.capture_event();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::ArrowDown if is_plain => {
+                            if !options.is_empty() {
+                                let last = options.len() - 1;
+                                state.hovered_option = Some(
+                                    state
+                                        .hovered_option
+                                        .map_or(0, |index| index.saturating_add(1).min(last)),
+                                );
+                            }
+
+                            if let Some(index) = state.hovered_option {
+                                state.menu.scroll_to_option(index);
+                            }
+
+                            shell.capture_event();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::Home if is_plain => {
+                            if !options.is_empty() {
+                                state.hovered_option = Some(0);
+                                state.menu.scroll_to_option(0);
+                            }
+
+                            shell.capture_event();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::End if is_plain => {
+                            if !options.is_empty() {
+                                let last = options.len() - 1;
+                                state.hovered_option = Some(last);
+                                state.menu.scroll_to_option(last);
+                            }
+
+                            shell.capture_event();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::Enter | keyboard::key::Named::Space if is_plain => {
+                            if let Some(option) = state
+                                .hovered_option
+                                .and_then(|index| options.get(index).map(|option| (index, option)))
+                            {
+                                state.keyboard_selected_option = Some(option.0);
+                                state.is_open = false;
+                                state.is_focused = true;
+                                shell.publish((self.on_select.as_ref().unwrap())(option.1.clone()));
+                                shell.invalidate_layout();
+                            }
+
+                            shell.capture_event();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::Escape if is_plain => {
+                            state.is_open = false;
+                            state.is_focused = true;
+
+                            if let Some(on_close) = &self.on_close {
+                                shell.publish(on_close.clone());
+                            }
+
+                            shell.capture_event();
+                            shell.invalidate_layout();
+                            shell.request_redraw();
+                        }
+                        keyboard::key::Named::Tab => {
+                            state.is_open = false;
+
+                            if let Some(on_close) = &self.on_close {
+                                shell.publish(on_close.clone());
+                            }
+
+                            shell.invalidate_layout();
+                            shell.request_redraw();
+                        }
+                        _ => {}
+                    }
+                } else if is_plain {
+                    match key {
+                        keyboard::key::Named::Enter
+                        | keyboard::key::Named::Space
+                        | keyboard::key::Named::ArrowUp
+                        | keyboard::key::Named::ArrowDown => {
+                            if !options.is_empty() {
+                                let active = state.keyboard_selected_option.unwrap_or(0);
+                                state.hovered_option = Some(active);
+                                state.menu.scroll_to_option(active);
+                                state.is_open = true;
+
+                                if let Some(on_open) = &self.on_open {
+                                    shell.publish(on_open.clone());
+                                }
+
+                                shell.capture_event();
+                                shell.invalidate_layout();
+                                shell.request_redraw();
+                            }
+                        }
+                        keyboard::key::Named::ArrowLeft => {
+                            let index = state
+                                .keyboard_selected_option
+                                .map(|index| index.saturating_sub(1))
+                                .or_else(|| options.len().checked_sub(1));
+
+                            if let Some(index) = index
+                                && state.keyboard_selected_option != Some(index)
+                                && let Some(option) = options.get(index)
+                            {
+                                state.keyboard_selected_option = Some(index);
+                                shell.publish((self.on_select.as_ref().unwrap())(option.clone()));
+                                shell.capture_event();
+                                shell.request_redraw();
+                            }
+
+                            if !options.is_empty() {
+                                shell.capture_event();
+                            }
+                        }
+                        keyboard::key::Named::ArrowRight => {
+                            let index = if options.is_empty() {
+                                None
+                            } else {
+                                Some(
+                                    state
+                                        .keyboard_selected_option
+                                        .map_or(0, |index| index.saturating_add(1))
+                                        .min(options.len() - 1),
+                                )
+                            };
+
+                            if let Some(index) = index
+                                && state.keyboard_selected_option != Some(index)
+                                && let Some(option) = options.get(index)
+                            {
+                                state.keyboard_selected_option = Some(index);
+                                shell.publish((self.on_select.as_ref().unwrap())(option.clone()));
+                                shell.capture_event();
+                                shell.request_redraw();
+                            }
+
+                            if !options.is_empty() {
+                                shell.capture_event();
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             Event::Mouse(mouse::Event::WheelScrolled {
@@ -506,9 +687,6 @@ where
 
                         options.next()
                     }
-
-                    let options = self.options.borrow();
-                    let selected = self.selected.as_ref().map(Borrow::borrow);
 
                     let next_option = if *y < 0.0 {
                         if let Some(selected) = selected {
@@ -542,7 +720,7 @@ where
         let status = {
             let is_hovered = cursor.is_over(layout.bounds());
 
-            if self.on_select.is_none() {
+            if self.on_select.is_none() || options.is_empty() {
                 Status::Disabled
             } else if state.is_open {
                 Status::Opened { is_hovered }
@@ -586,7 +764,7 @@ where
         let is_mouse_over = cursor.is_over(bounds);
 
         if is_mouse_over {
-            if self.on_select.is_some() {
+            if self.on_select.is_some() && !self.options.borrow().is_empty() {
                 mouse::Interaction::Pointer
             } else {
                 mouse::Interaction::Idle
@@ -758,11 +936,11 @@ where
 
         // Indicate whether the dropdown is open
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
-        let is_open = state.is_open;
+        let is_open = state.is_open && !self.options.borrow().is_empty();
         builder.set_expanded(is_open);
-        builder.set_has_popup(accesskit::HasPopup::Menu);
+        builder.set_has_popup(accesskit::HasPopup::Listbox);
 
-        if self.on_select.is_none() {
+        if self.on_select.is_none() || self.options.borrow().is_empty() {
             builder.set_disabled();
         } else {
             builder.add_action(accesskit::Action::Click);
@@ -804,18 +982,25 @@ where
 
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
+        if self.options.borrow().is_empty() {
+            state.is_open = false;
+            return;
+        }
+
         match action.action {
             accesskit::Action::Click => {
                 state.is_open = !state.is_open;
                 state.is_focused = true;
 
                 if state.is_open {
+                    let options = self.options.borrow();
                     let selected = self.selected.as_ref().map(Borrow::borrow);
-                    state.hovered_option = self
-                        .options
-                        .borrow()
+                    state.hovered_option = options
                         .iter()
-                        .position(|option| Some(option) == selected);
+                        .position(|option| Some(option) == selected)
+                        .or(Some(0));
+
+                    state.menu.scroll_to_option(state.hovered_option.unwrap());
 
                     if let Some(on_open) = &self.on_open {
                         shell.publish(on_open.clone());
@@ -829,12 +1014,13 @@ where
             }
             accesskit::Action::Expand => {
                 if !state.is_open {
+                    let options = self.options.borrow();
                     let selected = self.selected.as_ref().map(Borrow::borrow);
-                    state.hovered_option = self
-                        .options
-                        .borrow()
+                    state.hovered_option = options
                         .iter()
-                        .position(|option| Some(option) == selected);
+                        .position(|option| Some(option) == selected)
+                        .or(Some(0));
+                    state.menu.scroll_to_option(state.hovered_option.unwrap());
                     state.is_open = true;
                     state.is_focused = true;
 
@@ -885,6 +1071,17 @@ where
         if state.is_open {
             let bounds = layout.bounds();
             let options = self.options.borrow();
+
+            if options.is_empty() {
+                state.is_open = false;
+                state.hovered_option = None;
+                state.keyboard_selected_option = None;
+                return None;
+            }
+
+            state.hovered_option = clamp_option(state.hovered_option, options.len());
+            state.keyboard_selected_option =
+                clamp_option(state.keyboard_selected_option, options.len());
             let selected = self.selected.as_ref().map(Borrow::borrow);
             let selected_option = options.iter().position(|option| Some(option) == selected);
 
@@ -946,6 +1143,8 @@ struct State<P: text::Paragraph> {
     keyboard_modifiers: keyboard::Modifiers,
     is_open: bool,
     hovered_option: Option<usize>,
+    last_selected_option: Option<Option<usize>>,
+    keyboard_selected_option: Option<usize>,
     options: Vec<paragraph::Plain<P>>,
     placeholder: paragraph::Plain<P>,
     is_focused: bool,
@@ -959,6 +1158,8 @@ impl<P: text::Paragraph> State<P> {
             keyboard_modifiers: keyboard::Modifiers::default(),
             is_open: bool::default(),
             hovered_option: Option::default(),
+            last_selected_option: None,
+            keyboard_selected_option: None,
             options: Vec::new(),
             placeholder: paragraph::Plain::default(),
             is_focused: false,
@@ -983,6 +1184,25 @@ impl<P: text::Paragraph> operation::Focusable for State<P> {
 impl<P: text::Paragraph> Default for State<P> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn clamp_option(index: Option<usize>, option_count: usize) -> Option<usize> {
+    (option_count > 0)
+        .then(|| index.map(|index| index.min(option_count - 1)))
+        .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_option;
+
+    #[test]
+    fn active_option_is_clamped_when_options_shrink() {
+        assert_eq!(clamp_option(Some(3), 2), Some(1));
+        assert_eq!(clamp_option(Some(1), 1), Some(0));
+        assert_eq!(clamp_option(Some(1), 0), None);
+        assert_eq!(clamp_option(None, 2), None);
     }
 }
 

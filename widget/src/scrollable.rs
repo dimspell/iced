@@ -134,6 +134,36 @@ where
         self
     }
 
+    pub(crate) fn scroll_to_rectangle(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        target: Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let Some(content_bounds) = layout.children().next().map(|layout| layout.bounds()) else {
+            return;
+        };
+        let state = tree.state.downcast_mut::<State>();
+        let current = state
+            .offset_y
+            .absolute(bounds.height, content_bounds.height);
+        let viewport_top = content_bounds.y + current;
+        let viewport_bottom = viewport_top + bounds.height;
+        let target_bottom = target.y + target.height;
+        let max_scroll = (content_bounds.height - bounds.height).max(0.0);
+
+        let offset = if target.y < viewport_top {
+            target.y - content_bounds.y
+        } else if target_bottom > viewport_bottom {
+            target_bottom - content_bounds.y - bounds.height
+        } else {
+            current
+        };
+
+        state.offset_y = Offset::Absolute(offset.clamp(0.0, max_scroll));
+    }
+
     /// Sets a function to call when the [`Scrollable`] is scrolled.
     ///
     /// The function takes the [`Viewport`] of the [`Scrollable`]

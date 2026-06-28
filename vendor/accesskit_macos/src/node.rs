@@ -357,6 +357,24 @@ fn supports_direct_value_set(node: &Node) -> bool {
             || node.supports_action(Action::SetValue, &filter))
 }
 
+fn controlled_popup<'a>(node: &'a Node<'a>) -> Option<Node<'a>> {
+    node.controls()
+        .find(|controlled| controlled.role() == Role::MenuListPopup)
+}
+
+fn nearest_node_supporting_action<'a>(
+    mut node: Node<'a>,
+    action: Action,
+) -> Option<Node<'a>> {
+    loop {
+        if node.supports_action(action, &filter) {
+            return Some(node);
+        }
+
+        node = node.parent()?;
+    }
+}
+
 #[derive(PartialEq)]
 pub(crate) enum Value {
     Bool(bool),
@@ -501,6 +519,23 @@ declare_class!(
         fn children_in_navigation_order(&self) -> Option<Id<NSArray<PlatformNode>>> {
             // For now, we assume the children are in navigation order.
             self.children_internal()
+        }
+
+        #[method_id(accessibilityVisibleChildren)]
+        fn visible_children(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.children_internal()
+        }
+
+        #[method_id(accessibilityShownMenu)]
+        fn shown_menu(&self) -> Option<Id<PlatformNode>> {
+            self.resolve_with_context(|node, _, context| {
+                (node.data().is_expanded() == Some(true))
+                    .then(|| controlled_popup(node))
+                    .flatten()
+                    .filter(|popup| filter(popup) == FilterResult::Include)
+                    .map(|popup| context.get_or_create_platform_node(popup.id()))
+            })
+            .flatten()
         }
 
         #[method_id(accessibilitySelectedChildren)]
@@ -1254,6 +1289,65 @@ declare_class!(
             .unwrap_or(false)
         }
 
+        #[method(accessibilityPerformConfirm)]
+        fn confirm(&self) -> bool {
+            self.resolve_with_context(|node, tree, context| {
+                let supported = node.is_clickable(&filter);
+                if supported {
+                    if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
+                        context.do_action(ActionRequest {
+                            action: Action::Click,
+                            target_tree,
+                            target_node,
+                            data: None,
+                        });
+                    }
+                }
+                supported
+            })
+            .unwrap_or(false)
+        }
+
+        #[method(accessibilityPerformShowMenu)]
+        fn show_menu(&self) -> bool {
+            self.resolve_with_context(|node, tree, context| {
+                let supported = node.supports_action(Action::Expand, &filter);
+                if supported {
+                    if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
+                        context.do_action(ActionRequest {
+                            action: Action::Expand,
+                            target_tree,
+                            target_node,
+                            data: None,
+                        });
+                    }
+                }
+                supported
+            })
+            .unwrap_or(false)
+        }
+
+        #[method(accessibilityPerformCancel)]
+        fn cancel(&self) -> bool {
+            self.resolve_with_context(|node, tree, context| {
+                let Some(target) = nearest_node_supporting_action(*node, Action::Collapse) else {
+                    return false;
+                };
+                let Some((target_node, target_tree)) = tree.state().locate_node(target.id()) else {
+                    return false;
+                };
+
+                context.do_action(ActionRequest {
+                    action: Action::Collapse,
+                    target_tree,
+                    target_node,
+                    data: None,
+                });
+                true
+            })
+            .unwrap_or(false)
+        }
+
         #[method_id(accessibilityLinkedUIElements)]
         fn linked_ui_elements(&self) -> Option<Id<NSArray<PlatformNode>>> {
             self.resolve_with_context(|node, _, context| {
@@ -1336,6 +1430,15 @@ declare_class!(
                 if selector == sel!(accessibilityPerformPress) {
                     return node.is_clickable(&filter);
                 }
+                if selector == sel!(accessibilityPerformConfirm) {
+                    return node.is_clickable(&filter);
+                }
+                if selector == sel!(accessibilityPerformShowMenu) {
+                    return node.supports_action(Action::Expand, &filter);
+                }
+                if selector == sel!(accessibilityPerformCancel) {
+                    return nearest_node_supporting_action(*node, Action::Collapse).is_some();
+                }
                 if selector == sel!(accessibilityPerformIncrement) {
                     return node.supports_increment(&filter);
                 }
@@ -1397,6 +1500,8 @@ declare_class!(
                 selector == sel!(accessibilityParent)
                     || selector == sel!(accessibilityChildren)
                     || selector == sel!(accessibilityChildrenInNavigationOrder)
+                    || selector == sel!(accessibilityVisibleChildren)
+                    || selector == sel!(accessibilityShownMenu)
                     || selector == sel!(accessibilitySelectedChildren)
                     || selector == sel!(accessibilityFrame)
                     || selector == sel!(accessibilityRole)
@@ -1497,13 +1602,17 @@ impl PlatformNode {
 
 #[cfg(test)]
 mod tests {
-    use super::visible_bounding_box;
-    use accesskit::{Node, NodeId, Rect, Role, Tree as TreeData, TreeId, TreeUpdate};
+    use super::{controlled_popup, nearest_node_supporting_action, visible_bounding_box};
+    use crate::filters::filter;
+    use accesskit::{Action, Node, NodeId, Rect, Role, Tree as TreeData, TreeId, TreeUpdate};
     use accesskit_consumer::Tree;
 
     const ROOT: NodeId = NodeId(0);
     const SCROLLABLE: NodeId = NodeId(1);
     const TARGET: NodeId = NodeId(2);
+    const COMBO: NodeId = NodeId(3);
+    const POPUP: NodeId = NodeId(4);
+    const OPTION: NodeId = NodeId(5);
 
     fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Rect {
         Rect { x0, y0, x1, y1 }
@@ -1556,6 +1665,71 @@ mod tests {
             .expect("Target node");
 
         visible_bounding_box(&target, host).expect("Visible bounds")
+    }
+
+    fn popup_tree() -> Tree {
+        let mut root = Node::new(Role::Window);
+        root.push_child(COMBO);
+
+        let mut combo = Node::new(Role::ComboBox);
+        combo.set_expanded(true);
+        combo.add_action(Action::Expand);
+        combo.add_action(Action::Collapse);
+        combo.set_controls(&[POPUP]);
+        combo.push_child(POPUP);
+
+        let mut popup = Node::new(Role::MenuListPopup);
+        popup.push_child(OPTION);
+
+        let mut option = Node::new(Role::MenuListOption);
+        option.set_selected(false);
+        option.add_action(Action::Click);
+
+        Tree::new(
+            TreeUpdate {
+                nodes: vec![
+                    (ROOT, root),
+                    (COMBO, combo),
+                    (POPUP, popup),
+                    (OPTION, option),
+                ],
+                tree: Some(TreeData::new(ROOT)),
+                tree_id: TreeId::ROOT,
+                focus: OPTION,
+            },
+            true,
+        )
+    }
+
+    #[test]
+    fn expanded_combo_exposes_controlled_popup() {
+        let tree = popup_tree();
+        let combo = tree.state().root().children().next().unwrap();
+
+        assert_eq!(
+            controlled_popup(&combo).map(|node| u128::from(node.id()) >> 64),
+            Some(POPUP.0 as u128)
+        );
+    }
+
+    #[test]
+    fn popup_option_supports_confirm_and_routes_cancel_to_owner() {
+        let tree = popup_tree();
+        let option = tree
+            .state()
+            .root()
+            .children()
+            .next()
+            .and_then(|combo| combo.children().next())
+            .and_then(|popup| popup.children().next())
+            .unwrap();
+
+        assert!(option.is_clickable(&filter));
+        assert_eq!(
+            nearest_node_supporting_action(option, Action::Collapse)
+                .map(|node| u128::from(node.id()) >> 64),
+            Some(COMBO.0 as u128)
+        );
     }
 
     #[test]
