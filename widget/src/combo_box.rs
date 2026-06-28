@@ -820,6 +820,15 @@ where
                 None
             } else {
                 let bounds = layout.bounds();
+                let selection = self.selection.to_string();
+                let selected_option = (!selection.is_empty())
+                    .then(|| {
+                        filtered_options
+                            .options
+                            .iter()
+                            .position(|option| option.to_string() == selection)
+                    })
+                    .flatten();
 
                 let mut menu = menu::Menu::new(
                     menu,
@@ -836,6 +845,7 @@ where
                     self.on_option_hovered.as_deref(),
                     &self.menu_class,
                 )
+                .selected(selected_option)
                 .width(bounds.width)
                 .padding(self.padding)
                 .shaping(self.shaping)

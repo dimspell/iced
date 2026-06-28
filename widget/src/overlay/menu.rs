@@ -29,6 +29,7 @@ where
     state: &'a mut State,
     options: &'a [T],
     hovered_option: &'a mut Option<usize>,
+    selected_option: Option<usize>,
     to_string: &'a dyn Fn(&T) -> String,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -65,6 +66,7 @@ where
             state,
             options,
             hovered_option,
+            selected_option: None,
             to_string,
             on_selected: Box::new(on_selected),
             on_option_hovered,
@@ -77,6 +79,12 @@ where
             font: None,
             class,
         }
+    }
+
+    /// Sets the currently selected option.
+    pub fn selected(mut self, selected_option: Option<usize>) -> Self {
+        self.selected_option = selected_option;
+        self
     }
 
     /// Sets the width of the [`Menu`].
@@ -200,6 +208,7 @@ where
             state,
             options,
             hovered_option,
+            selected_option,
             to_string,
             on_selected,
             on_option_hovered,
@@ -216,6 +225,7 @@ where
         let mut list = Scrollable::new(List {
             options,
             hovered_option,
+            selected_option,
             to_string,
             on_selected,
             on_option_hovered,
@@ -357,6 +367,7 @@ where
 {
     options: &'a [T],
     hovered_option: &'a mut Option<usize>,
+    selected_option: Option<usize>,
     to_string: &'a dyn Fn(&T) -> String,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -621,11 +632,11 @@ where
             let option_id = accesskit::NodeId(*id_counter);
             *id_counter += 1;
 
-            let mut option_node = accesskit::Node::new(accesskit::Role::MenuItem);
+            let mut option_node = accesskit::Node::new(accesskit::Role::MenuListOption);
             option_node.set_label((self.to_string)(option));
             option_node.add_action(accesskit::Action::Click);
             option_node.add_action(accesskit::Action::Focus);
-            option_node.set_selected(self.hovered_option == &Some(i));
+            option_node.set_selected(self.selected_option == Some(i));
 
             // Set bounds so screen readers know where each item sits
             let bounds = layout.bounds();
@@ -640,6 +651,11 @@ where
 
             nodes.push((option_id, option_node));
             list_node.push_child(option_id);
+
+            if *self.hovered_option == Some(i) {
+                list_node.set_active_descendant(option_id);
+            }
+
             option_ids.push(option_id);
         }
 
@@ -688,6 +704,13 @@ where
 
             if let Some(index) = index {
                 *self.hovered_option = Some(index);
+
+                if let Some(on_option_hovered) = self.on_option_hovered
+                    && let Some(option) = self.options.get(index)
+                {
+                    shell.publish(on_option_hovered(option.clone()));
+                }
+
                 shell.request_redraw();
             }
         }

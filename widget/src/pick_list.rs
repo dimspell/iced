@@ -788,7 +788,7 @@ where
         tree: &mut Tree,
         _layout: Layout<'_>,
         action: &accesskit::ActionRequest,
-        _shell: &mut Shell<'_, Message>,
+        shell: &mut Shell<'_, Message>,
     ) {
         use crate::core::accessibility::accesskit;
 
@@ -805,19 +805,63 @@ where
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
         match action.action {
-            accesskit::Action::Click | accesskit::Action::Expand => {
-                state.is_open = true;
-                _shell.invalidate_layout();
-                _shell.request_redraw();
+            accesskit::Action::Click => {
+                state.is_open = !state.is_open;
+                state.is_focused = true;
+
+                if state.is_open {
+                    let selected = self.selected.as_ref().map(Borrow::borrow);
+                    state.hovered_option = self
+                        .options
+                        .borrow()
+                        .iter()
+                        .position(|option| Some(option) == selected);
+
+                    if let Some(on_open) = &self.on_open {
+                        shell.publish(on_open.clone());
+                    }
+                } else if let Some(on_close) = &self.on_close {
+                    shell.publish(on_close.clone());
+                }
+
+                shell.invalidate_layout();
+                shell.request_redraw();
+            }
+            accesskit::Action::Expand => {
+                if !state.is_open {
+                    let selected = self.selected.as_ref().map(Borrow::borrow);
+                    state.hovered_option = self
+                        .options
+                        .borrow()
+                        .iter()
+                        .position(|option| Some(option) == selected);
+                    state.is_open = true;
+                    state.is_focused = true;
+
+                    if let Some(on_open) = &self.on_open {
+                        shell.publish(on_open.clone());
+                    }
+
+                    shell.invalidate_layout();
+                    shell.request_redraw();
+                }
             }
             accesskit::Action::Collapse => {
-                state.is_open = false;
-                _shell.invalidate_layout();
-                _shell.request_redraw();
+                if state.is_open {
+                    state.is_open = false;
+                    state.is_focused = true;
+
+                    if let Some(on_close) = &self.on_close {
+                        shell.publish(on_close.clone());
+                    }
+
+                    shell.invalidate_layout();
+                    shell.request_redraw();
+                }
             }
             accesskit::Action::Focus => {
                 state.is_focused = true;
-                _shell.request_redraw();
+                shell.request_redraw();
             }
             _ => {}
         }
@@ -840,10 +884,13 @@ where
 
         if state.is_open {
             let bounds = layout.bounds();
+            let options = self.options.borrow();
+            let selected = self.selected.as_ref().map(Borrow::borrow);
+            let selected_option = options.iter().position(|option| Some(option) == selected);
 
             let mut menu = Menu::new(
                 &mut state.menu,
-                self.options.borrow(),
+                options,
                 &mut state.hovered_option,
                 &self.to_string,
                 |option| {
@@ -855,6 +902,7 @@ where
                 None,
                 &self.menu_class,
             )
+            .selected(selected_option)
             .width(bounds.width)
             .padding(self.padding)
             .font(font)

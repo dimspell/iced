@@ -1139,7 +1139,7 @@ fn slider_increment_targets_only_requested_slider() {
 // === MENU / DROPDOWN ACCESSIBILITY ===
 
 #[test]
-fn picklist_menu_items_visible_when_open() {
+fn picklist_menu_options_visible_when_open() {
     let options = vec!["Option A", "Option B", "Option C"];
     let mut ui = simulator::<(), Theme, Renderer>(
         pick_list(Some("Option A"), options.as_slice(), |s: &&str| {
@@ -1158,21 +1158,21 @@ fn picklist_menu_items_visible_when_open() {
     let items: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
-        .filter(|(_, n)| n.role() == Role::MenuItem)
+        .filter(|(_, n)| n.role() == Role::MenuListOption)
         .map(|(_, n)| n)
         .collect();
 
     assert_eq!(
         items.len(),
         3,
-        "Should have 3 MenuItem nodes when dropdown is open"
+        "Should have 3 MenuListOption nodes when dropdown is open"
     );
     assert_eq!(items[0].label(), Some("Option A"));
     assert!(items[0].supports_action(accesskit::Action::Click));
 }
 
 #[test]
-fn picklist_expand_action_exposes_menu_items() {
+fn picklist_expand_action_exposes_menu_options() {
     let options = vec!["Option A", "Option B", "Option C"];
     let mut ui = simulator::<(), Theme, Renderer>(
         pick_list(Some("Option A"), options.as_slice(), |s: &&str| {
@@ -1201,14 +1201,14 @@ fn picklist_expand_action_exposes_menu_items() {
     assert_eq!(
         tree.nodes
             .iter()
-            .filter(|(_, n)| n.role() == Role::MenuItem)
+            .filter(|(_, n)| n.role() == Role::MenuListOption)
             .count(),
         3
     );
 }
 
 #[test]
-fn picklist_menu_item_click_dispatches_selection() {
+fn picklist_menu_option_click_dispatches_selection() {
     let options = vec!["Alpha", "Beta", "Gamma"];
     let mut ui = simulator::<String, Theme, Renderer>(
         pick_list(Some("Alpha"), options.as_slice(), |s: &&str| s.to_string())
@@ -1239,7 +1239,7 @@ fn picklist_menu_item_click_dispatches_selection() {
     let (target_id, _) = tree
         .nodes
         .iter()
-        .find(|(_, n)| n.role() == Role::MenuItem && n.label() == Some("Beta"))
+        .find(|(_, n)| n.role() == Role::MenuListOption && n.label() == Some("Beta"))
         .expect("Second menu item 'Beta' should exist");
 
     let request = accesskit::ActionRequest {
@@ -1262,7 +1262,7 @@ fn picklist_menu_item_click_dispatches_selection() {
     assert!(
         tree.nodes
             .iter()
-            .all(|(_, node)| node.role() != Role::MenuItem),
+            .all(|(_, node)| node.role() != Role::MenuListOption),
         "Menu items should be removed after selection"
     );
 
@@ -1270,7 +1270,133 @@ fn picklist_menu_item_click_dispatches_selection() {
     assert_eq!(
         messages,
         vec!["Beta"],
-        "Clicking menu item should produce its selected message"
+        "Clicking a menu option should produce its selected message"
+    );
+}
+
+#[test]
+fn picklist_option_focus_does_not_change_selection() {
+    let options = vec!["Alpha", "Beta", "Gamma"];
+    let mut ui = simulator::<String, Theme, Renderer>(
+        pick_list(Some("Alpha"), options.as_slice(), |s: &&str| s.to_string())
+            .on_select(|s| s.to_string()),
+    );
+
+    let tree = ui.accessibility_tree();
+    let combo_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .expect("PickList ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Expand,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    let alpha = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MenuListOption && node.label() == Some("Alpha"))
+        .expect("Alpha option");
+    let beta_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MenuListOption && node.label() == Some("Beta"))
+        .map(|(id, node)| {
+            assert_eq!(node.is_selected(), Some(false));
+            *id
+        })
+        .expect("Beta option");
+
+    assert_eq!(alpha.1.is_selected(), Some(true));
+    assert_eq!(tree.focus, combo_id);
+    assert_eq!(
+        tree.nodes
+            .iter()
+            .find(|(id, _)| *id == combo_id)
+            .and_then(|(_, node)| node.active_descendant()),
+        Some(alpha.0)
+    );
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Focus,
+        target_tree: TreeId::ROOT,
+        target_node: beta_id,
+        data: None,
+    });
+
+    let tree = ui.accessibility_tree();
+    let alpha = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MenuListOption && node.label() == Some("Alpha"))
+        .expect("Alpha option after navigation");
+    let beta = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::MenuListOption && node.label() == Some("Beta"))
+        .expect("Beta option after navigation");
+
+    assert_eq!(alpha.1.is_selected(), Some(true));
+    assert_eq!(beta.1.is_selected(), Some(false));
+    assert_eq!(tree.focus, combo_id);
+    assert_eq!(
+        tree.nodes
+            .iter()
+            .find(|(id, _)| *id == combo_id)
+            .and_then(|(_, node)| node.active_descendant()),
+        Some(beta.0)
+    );
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Click,
+        target_tree: TreeId::ROOT,
+        target_node: beta.0,
+        data: None,
+    });
+
+    assert_eq!(ui.into_messages().collect::<Vec<_>>(), vec!["Beta"]);
+}
+
+#[test]
+fn picklist_accessibility_actions_publish_open_and_close_messages() {
+    let options = vec!["Alpha", "Beta"];
+    let mut ui = simulator::<&str, Theme, Renderer>(
+        pick_list(Some("Alpha"), options.as_slice(), |s: &&str| s.to_string())
+            .on_select(|_| "selected")
+            .on_open("opened")
+            .on_close("closed"),
+    );
+
+    let tree = ui.accessibility_tree();
+    let combo_id = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ComboBox)
+        .map(|(id, _)| *id)
+        .expect("PickList ComboBox node");
+
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Expand,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+    ui.accessibility_action(&ActionRequest {
+        action: Action::Collapse,
+        target_tree: TreeId::ROOT,
+        target_node: combo_id,
+        data: None,
+    });
+
+    assert_eq!(
+        ui.into_messages().collect::<Vec<_>>(),
+        vec!["opened", "closed"]
     );
 }
 
@@ -1400,7 +1526,7 @@ fn tooltip_open_state_attaches_overlay_to_owner() {
 // === COMBOBOX DROPDOWN MENU ITEMS ===
 
 #[test]
-fn combo_box_menu_items_visible_when_focused() {
+fn combo_box_menu_options_visible_when_focused() {
     use iced_widget::combo_box;
 
     let state = combo_box::State::new(vec!["A", "B", "C"]);
@@ -1417,20 +1543,20 @@ fn combo_box_menu_items_visible_when_focused() {
     let items: Vec<&accesskit::Node> = tree
         .nodes
         .iter()
-        .filter(|(_, n)| n.role() == Role::MenuItem)
+        .filter(|(_, n)| n.role() == Role::MenuListOption)
         .map(|(_, n)| n)
         .collect();
     assert_eq!(
         items.len(),
         3,
-        "Should have 3 MenuItem nodes when dropdown is open"
+        "Should have 3 MenuListOption nodes when dropdown is open"
     );
     assert_eq!(items[0].label(), Some("A"));
     assert!(items[0].supports_action(accesskit::Action::Click));
 }
 
 #[test]
-fn combo_box_expand_action_exposes_menu_items() {
+fn combo_box_expand_action_exposes_menu_options() {
     use iced_widget::combo_box;
 
     let state = combo_box::State::new(vec!["A", "B", "C"]);
@@ -1457,14 +1583,14 @@ fn combo_box_expand_action_exposes_menu_items() {
     assert_eq!(
         tree.nodes
             .iter()
-            .filter(|(_, n)| n.role() == Role::MenuItem)
+            .filter(|(_, n)| n.role() == Role::MenuListOption)
             .count(),
         3
     );
 }
 
 #[test]
-fn combo_box_menu_item_click_dispatches_selection() {
+fn combo_box_menu_option_click_dispatches_selection() {
     use iced_widget::combo_box;
 
     let state = combo_box::State::new(vec!["Alpha", "Beta", "Gamma"]);
@@ -1485,7 +1611,7 @@ fn combo_box_menu_item_click_dispatches_selection() {
     let (target_id, _) = tree
         .nodes
         .iter()
-        .find(|(_, n)| n.role() == Role::MenuItem && n.label() == Some("Beta"))
+        .find(|(_, n)| n.role() == Role::MenuListOption && n.label() == Some("Beta"))
         .expect("Second menu item 'Beta' should exist");
 
     let request = accesskit::ActionRequest {
@@ -1499,7 +1625,7 @@ fn combo_box_menu_item_click_dispatches_selection() {
     assert_eq!(
         messages,
         vec!["Beta"],
-        "Clicking ComboBox item should produce its selected message"
+        "Clicking a ComboBox option should produce its selected message"
     );
 }
 

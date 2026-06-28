@@ -677,7 +677,7 @@ where
 
             // Attach overlay root as child of the widget that owns it
             // (e.g., an expanded ComboBox) rather than the window root.
-            // This lets screen readers discover menu items as belonging to
+            // This lets screen readers discover popup options as belonging to
             // the popup button they originated from.
             if let Some(overlay_root_id) = overlay_root_id {
                 let overlay_nodes = &nodes[overlay_start..];
@@ -687,6 +687,10 @@ where
                 let has_tooltip = overlay_nodes
                     .iter()
                     .any(|(_, n)| n.role() == accesskit::Role::Tooltip);
+                let popup_active_descendant = overlay_nodes
+                    .iter()
+                    .find(|(_, n)| n.role() == accesskit::Role::MenuListPopup)
+                    .and_then(|(_, n)| n.active_descendant());
 
                 let popup_parent_id = if has_menu_popup {
                     nodes[..overlay_start]
@@ -721,6 +725,10 @@ where
 
                     parent_node.set_children(children);
                     parent_node.set_controls(&[overlay_root_id]);
+
+                    if let Some(active_descendant) = popup_active_descendant {
+                        parent_node.set_active_descendant(active_descendant);
+                    }
                 }
             }
         }
@@ -743,7 +751,9 @@ where
         shell: &mut Shell<'_, Message>,
     ) {
         if request.action == accesskit::Action::Focus {
-            if self.state.contains_accesskit_node_id(request.target_node) {
+            let target_is_in_base_tree = self.state.contains_accesskit_node_id(request.target_node);
+
+            if target_is_in_base_tree {
                 let scroll_request = accesskit::ActionRequest {
                     action: accesskit::Action::ScrollIntoView,
                     target_tree: request.target_tree,
@@ -757,11 +767,10 @@ where
                     &scroll_request,
                     shell,
                 );
+                let mut operation = widget::operation::focusable::unfocus::<()>();
+
+                self.operate(renderer, &mut operation);
             }
-
-            let mut operation = widget::operation::focusable::unfocus::<()>();
-
-            self.operate(renderer, &mut operation);
         }
 
         // Dispatch to root widget tree
