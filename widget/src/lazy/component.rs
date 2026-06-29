@@ -250,6 +250,7 @@ where
             tag: tree::Tag::of::<Tag<S>>(),
             state: tree::State::new(S::default()),
             children: vec![Tree::empty()],
+            ..Tree::empty()
         })));
 
         *self.tree.borrow_mut() = state.clone();
