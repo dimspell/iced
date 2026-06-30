@@ -427,6 +427,14 @@ mod tests {
                 (Some("Location"), Some(3)),
             ]
         );
+
+        let row_indices: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Row)
+            .map(|(_, node)| node.row_index())
+            .collect();
+        assert_eq!(row_indices, (0..9).map(Some).collect::<Vec<_>>());
     }
 
     #[test]

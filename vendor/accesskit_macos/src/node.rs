@@ -1278,6 +1278,29 @@ declare_class!(
             .map_or(0, |index| index as NSInteger)
         }
 
+        #[method(accessibilityRowCount)]
+        fn row_count(&self) -> NSInteger {
+            self.resolve(|node| node.data().row_count().unwrap_or(0) as NSInteger)
+                .unwrap_or(0)
+        }
+
+        #[method(accessibilityColumnCount)]
+        fn column_count(&self) -> NSInteger {
+            self.resolve(|node| node.data().column_count().unwrap_or(0) as NSInteger)
+                .unwrap_or(0)
+        }
+
+        #[method(isAccessibilityOrderedByRow)]
+        fn is_ordered_by_row(&self) -> bool {
+            self.resolve(|node| {
+                matches!(
+                    node.role(),
+                    Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+                )
+            })
+            .unwrap_or(false)
+        }
+
         /// Returns the column header UI elements for the table.
         /// This is required by the NSAccessibilityTable protocol so VoiceOver
         /// can associate data cells with their column headers.
@@ -1584,6 +1607,18 @@ declare_class!(
                         Role::ColumnHeader => node.column_index().is_some(),
                         _ => false,
                     };
+                }
+                if selector == sel!(accessibilityRowCount) {
+                    return node.data().row_count().is_some();
+                }
+                if selector == sel!(accessibilityColumnCount) {
+                    return node.data().column_count().is_some();
+                }
+                if selector == sel!(isAccessibilityOrderedByRow) {
+                    return matches!(
+                        node.role(),
+                        Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+                    );
                 }
                 if selector == sel!(accessibilityColumnIndexRange) {
                     return matches!(
