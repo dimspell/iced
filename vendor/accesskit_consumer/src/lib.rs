@@ -209,4 +209,78 @@ mod tests {
             FilterResult::Include
         }
     }
+
+    #[test]
+    fn column_index_round_trip() {
+        const TABLE_ID: LocalNodeId = LocalNodeId(100);
+        const HEADER_ROW_ID: LocalNodeId = LocalNodeId(101);
+        const COL_A_ID: LocalNodeId = LocalNodeId(102);
+        const COL_B_ID: LocalNodeId = LocalNodeId(103);
+        const DATA_ROW_ID: LocalNodeId = LocalNodeId(104);
+        const CELL_A_ID: LocalNodeId = LocalNodeId(105);
+        const CELL_B_ID: LocalNodeId = LocalNodeId(106);
+
+        let mut table = Node::new(Role::Table);
+        table.set_row_count(2);
+        table.set_column_count(2);
+        table.set_children(vec![HEADER_ROW_ID, DATA_ROW_ID]);
+
+        let mut header_row = Node::new(Role::Row);
+        header_row.set_row_index(0);
+        header_row.set_children(vec![COL_A_ID, COL_B_ID]);
+
+        let mut col_a = Node::new(Role::ColumnHeader);
+        col_a.set_column_index(0);
+        col_a.set_label("Name");
+
+        let mut col_b = Node::new(Role::ColumnHeader);
+        col_b.set_column_index(1);
+        col_b.set_label("Value");
+
+        let mut data_row = Node::new(Role::Row);
+        data_row.set_row_index(1);
+        data_row.set_children(vec![CELL_A_ID, CELL_B_ID]);
+
+        let mut cell_a = Node::new(Role::Cell);
+        cell_a.set_column_index(0);
+        cell_a.set_row_index(1);
+        cell_a.set_value("foo");
+
+        let mut cell_b = Node::new(Role::Cell);
+        cell_b.set_column_index(1);
+        cell_b.set_row_index(1);
+        cell_b.set_value("bar");
+
+        let update = TreeUpdate {
+            nodes: vec![
+                (TABLE_ID, table),
+                (HEADER_ROW_ID, header_row),
+                (COL_A_ID, col_a),
+                (COL_B_ID, col_b),
+                (DATA_ROW_ID, data_row),
+                (CELL_A_ID, cell_a),
+                (CELL_B_ID, cell_b),
+            ],
+            tree: Some(Tree::new(TABLE_ID)),
+            tree_id: TreeId::ROOT,
+            focus: CELL_A_ID,
+        };
+        let tree = crate::tree::Tree::new(update, false);
+
+        let state = tree.state();
+
+        let col_a_node = state.node_by_id(nid(COL_A_ID)).unwrap();
+        assert_eq!(col_a_node.column_index(), Some(0));
+
+        let col_b_node = state.node_by_id(nid(COL_B_ID)).unwrap();
+        assert_eq!(col_b_node.column_index(), Some(1));
+
+        let cell_a_node = state.node_by_id(nid(CELL_A_ID)).unwrap();
+        assert_eq!(cell_a_node.column_index(), Some(0));
+        assert_eq!(cell_a_node.row_index(), Some(1));
+
+        let cell_b_node = state.node_by_id(nid(CELL_B_ID)).unwrap();
+        assert_eq!(cell_b_node.column_index(), Some(1));
+        assert_eq!(cell_b_node.row_index(), Some(1));
+    }
 }

@@ -433,7 +433,7 @@ impl NodeWrapper<'_> {
     }
 
     fn is_container_with_selectable_children(&self) -> bool {
-        self.0.role() == Role::Table
+        matches!(self.0.role(), Role::Table | Role::Grid)
             || (self.0.is_container_with_selectable_children() && self.0.role() != Role::TabList)
     }
 
@@ -1267,10 +1267,18 @@ declare_class!(
             self.table_descendants(&[Role::Cell, Role::GridCell], true)
         }
 
+        /// Returns the column header UI elements for the table.
+        /// This is required by the NSAccessibilityTable protocol so VoiceOver
+        /// can associate data cells with their column headers.
+        #[method_id(accessibilityColumnHeaderUIElements)]
+        fn column_header_ui_elements(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.table_descendants(&[Role::ColumnHeader], false)
+        }
+
         #[method(accessibilityColumnIndexRange)]
         fn column_index_range(&self) -> NSRange {
             self.resolve(|node| {
-                if !matches!(node.role(), Role::Cell | Role::GridCell) {
+                if !matches!(node.role(), Role::Cell | Role::GridCell | Role::ColumnHeader) {
                     return NSRange::new(0, 0);
                 }
                 match node.column_index() {
