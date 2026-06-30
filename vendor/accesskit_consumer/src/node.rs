@@ -445,6 +445,22 @@ impl<'a> Node<'a> {
         self.data().level()
     }
 
+    pub fn column_index(&self) -> Option<usize> {
+        self.data().column_index()
+    }
+
+    pub fn row_index(&self) -> Option<usize> {
+        self.data().row_index()
+    }
+
+    pub fn column_span(&self) -> Option<usize> {
+        self.data().column_span()
+    }
+
+    pub fn row_span(&self) -> Option<usize> {
+        self.data().row_span()
+    }
+
     pub fn is_disabled(&self) -> bool {
         self.data().is_disabled()
     }

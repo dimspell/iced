@@ -1267,6 +1267,87 @@ declare_class!(
             self.table_descendants(&[Role::Cell, Role::GridCell], true)
         }
 
+        #[method(accessibilityColumnIndexRange)]
+        fn column_index_range(&self) -> NSRange {
+            self.resolve(|node| {
+                if !matches!(node.role(), Role::Cell | Role::GridCell) {
+                    return NSRange::new(0, 0);
+                }
+                match node.column_index() {
+                    Some(col) => NSRange::new(col, 1),
+                    None => NSRange::new(0, 0),
+                }
+            })
+            .unwrap_or(NSRange::new(0, 0))
+        }
+
+        #[method(accessibilityRowIndexRange)]
+        fn row_index_range(&self) -> NSRange {
+            self.resolve(|node| {
+                let role = node.role();
+                let row = match role {
+                    Role::Row | Role::ListItem | Role::TreeItem => node.row_index(),
+                    Role::Cell | Role::GridCell | Role::ColumnHeader | Role::RowHeader => {
+                        let mut n = *node;
+                        let idx = loop {
+                            if let Some(parent) = n.parent() {
+                                if matches!(parent.role(), Role::Row) {
+                                    break parent.row_index();
+                                }
+                                n = parent;
+                            } else {
+                                break None;
+                            }
+                        };
+                        idx
+                    }
+                    _ => None,
+                };
+                match row {
+                    Some(idx) => NSRange::new(idx, 1),
+                    None => NSRange::new(0, 0),
+                }
+            })
+            .unwrap_or(NSRange::new(0, 0))
+        }
+
+        #[method_id(accessibilityColumnHeaderUIElement)]
+        fn column_header_ui_element(&self) -> Option<Id<PlatformNode>> {
+            self.resolve_with_context(|node, _, context| {
+                if !matches!(node.role(), Role::Cell | Role::GridCell) {
+                    return None;
+                }
+                let col = node.column_index()?;
+                // Walk up to the containing Grid/Table.
+                let mut n = *node;
+                let grid = loop {
+                    if let Some(p) = n.parent() {
+                        if matches!(p.role(), Role::Grid | Role::Table) {
+                            break p;
+                        }
+                        n = p;
+                    } else {
+                        return None;
+                    }
+                };
+                // Find the ColumnHeader with matching column_index.
+                for row in grid.filtered_children(&filter) {
+                    if row.role() != Role::Row {
+                        continue;
+                    }
+                    for cell in row.filtered_children(&filter) {
+                        if cell.role() == Role::ColumnHeader
+                            && cell.column_index() == Some(col)
+                        {
+                            return Some(context.get_or_create_platform_node(cell.id()));
+                        }
+                    }
+                }
+                None
+            })
+            .flatten()
+        }
+
         #[method(accessibilityPerformPick)]
         fn pick(&self) -> bool {
             self.resolve_with_context(|node, tree, context| {
