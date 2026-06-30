@@ -41,6 +41,9 @@ enum Message {
 
 struct Person {
     name: String,
+    age: u8,
+    occupation: String,
+    location: String,
 }
 
 struct App {
@@ -83,10 +86,51 @@ impl App {
             people: vec![
                 Person {
                     name: "Alice".into(),
+                    age: 29,
+                    occupation: "Designer".into(),
+                    location: "London".into(),
                 },
-                Person { name: "Bob".into() },
+                Person {
+                    name: "Bob".into(),
+                    age: 34,
+                    occupation: "Engineer".into(),
+                    location: "Berlin".into(),
+                },
                 Person {
                     name: "Charlie".into(),
+                    age: 41,
+                    occupation: "Teacher".into(),
+                    location: "Toronto".into(),
+                },
+                Person {
+                    name: "Diana".into(),
+                    age: 26,
+                    occupation: "Writer".into(),
+                    location: "Lisbon".into(),
+                },
+                Person {
+                    name: "Ethan".into(),
+                    age: 38,
+                    occupation: "Architect".into(),
+                    location: "Chicago".into(),
+                },
+                Person {
+                    name: "Fatima".into(),
+                    age: 31,
+                    occupation: "Doctor".into(),
+                    location: "Cairo".into(),
+                },
+                Person {
+                    name: "Gabriel".into(),
+                    age: 45,
+                    occupation: "Chef".into(),
+                    location: "São Paulo".into(),
+                },
+                Person {
+                    name: "Hana".into(),
+                    age: 23,
+                    occupation: "Student".into(),
+                    location: "Seoul".into(),
                 },
             ],
             qr_data: qr_code::Data::new("https://iced.rs").ok(),
@@ -262,9 +306,16 @@ impl App {
             ]
             .spacing(20),
             table::table(
-                [table::column(text("Name"), |person: &Person| {
-                    text(&person.name)
-                })],
+                [
+                    table::column(text("Name"), |person: &Person| text(&person.name)),
+                    table::column(text("Age"), |person: &Person| text(person.age)),
+                    table::column(text("Occupation"), |person: &Person| {
+                        text(&person.occupation)
+                    }),
+                    table::column(text("Location"), |person: &Person| {
+                        text(&person.location)
+                    }),
+                ],
                 &self.people[..],
             )
             .accessible_label("People table"),
@@ -356,8 +407,26 @@ mod tests {
             .find(|(_, n)| n.role() == Role::Grid)
             .map(|(_, n)| n);
         assert!(table_node.is_some(), "Grid table node should exist");
-        // 1 header + 3 data rows
-        assert_eq!(table_node.unwrap().row_count(), Some(4));
+        let table_node = table_node.unwrap();
+        // 1 header + 8 data rows
+        assert_eq!(table_node.row_count(), Some(9));
+        assert_eq!(table_node.column_count(), Some(4));
+
+        let headers: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::ColumnHeader)
+            .map(|(_, node)| (node.label(), node.column_index()))
+            .collect();
+        assert_eq!(
+            headers,
+            vec![
+                (Some("Name"), Some(0)),
+                (Some("Age"), Some(1)),
+                (Some("Occupation"), Some(2)),
+                (Some("Location"), Some(3)),
+            ]
+        );
     }
 
     #[test]

@@ -1267,6 +1267,17 @@ declare_class!(
             self.table_descendants(&[Role::Cell, Role::GridCell], true)
         }
 
+        #[method(accessibilityIndex)]
+        fn index(&self) -> NSInteger {
+            self.resolve(|node| match node.role() {
+                Role::Row | Role::ListItem | Role::TreeItem => node.row_index(),
+                Role::ColumnHeader => node.column_index(),
+                _ => None,
+            })
+            .flatten()
+            .map_or(0, |index| index as NSInteger)
+        }
+
         /// Returns the column header UI elements for the table.
         /// This is required by the NSAccessibilityTable protocol so VoiceOver
         /// can associate data cells with their column headers.
@@ -1562,9 +1573,39 @@ declare_class!(
                     || selector == sel!(accessibilityColumns)
                     || selector == sel!(accessibilitySelectedColumns)
                     || selector == sel!(accessibilitySelectedCells)
+                    || selector == sel!(accessibilityColumnHeaderUIElements)
                 {
                     let wrapper = NodeWrapper(node);
                     return wrapper.is_container_with_selectable_children()
+                }
+                if selector == sel!(accessibilityIndex) {
+                    return match node.role() {
+                        Role::Row | Role::ListItem | Role::TreeItem => node.row_index().is_some(),
+                        Role::ColumnHeader => node.column_index().is_some(),
+                        _ => false,
+                    };
+                }
+                if selector == sel!(accessibilityColumnIndexRange) {
+                    return matches!(
+                        node.role(),
+                        Role::Cell | Role::GridCell | Role::ColumnHeader
+                    ) && node.column_index().is_some();
+                }
+                if selector == sel!(accessibilityRowIndexRange) {
+                    return matches!(
+                        node.role(),
+                        Role::Row
+                            | Role::ListItem
+                            | Role::TreeItem
+                            | Role::Cell
+                            | Role::GridCell
+                            | Role::ColumnHeader
+                            | Role::RowHeader
+                    );
+                }
+                if selector == sel!(accessibilityColumnHeaderUIElement) {
+                    return matches!(node.role(), Role::Cell | Role::GridCell)
+                        && node.column_index().is_some();
                 }
                 if selector == sel!(setAccessibilitySelected:)
                     || selector == sel!(accessibilityPerformPick)
