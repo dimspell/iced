@@ -307,8 +307,10 @@ impl App {
             .spacing(20),
             table::table(
                 [
-                    table::column(text("Name"), |person: &Person| text(&person.name)),
-                    table::column(text("Age"), |person: &Person| text(person.age)),
+                    table::column(text("Name"), |person: &Person| text(&person.name))
+                        .row_header(true),
+                    table::column(text("Age"), |person: &Person| text(person.age))
+                        .sort_direction(table::SortDirection::Ascending),
                     table::column(text("Occupation"), |person: &Person| {
                         text(&person.occupation)
                     }),
@@ -404,12 +406,11 @@ mod tests {
         let table_node = tree
             .nodes
             .iter()
-            .find(|(_, n)| n.role() == Role::Grid)
+            .find(|(_, n)| n.role() == Role::Table)
             .map(|(_, n)| n);
-        assert!(table_node.is_some(), "Grid table node should exist");
+        assert!(table_node.is_some(), "Table node should exist");
         let table_node = table_node.unwrap();
-        // 1 header + 8 data rows
-        assert_eq!(table_node.row_count(), Some(9));
+        assert_eq!(table_node.row_count(), Some(8));
         assert_eq!(table_node.column_count(), Some(4));
 
         let headers: Vec<_> = tree
@@ -434,7 +435,25 @@ mod tests {
             .filter(|(_, node)| node.role() == Role::Row)
             .map(|(_, node)| node.row_index())
             .collect();
-        assert_eq!(row_indices, (0..9).map(Some).collect::<Vec<_>>());
+        assert_eq!(row_indices, (0..8).map(Some).collect::<Vec<_>>());
+
+        let row_headers: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::RowHeader)
+            .collect();
+        assert_eq!(row_headers.len(), 8);
+
+        let age_header = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == Role::ColumnHeader && node.label() == Some("Age"))
+            .map(|(_, node)| node)
+            .expect("Age column header");
+        assert_eq!(
+            age_header.sort_direction(),
+            Some(accesskit::SortDirection::Ascending)
+        );
     }
 
     #[test]

@@ -1257,6 +1257,37 @@ declare_class!(
             self.table_descendants(&[Role::ColumnHeader], false)
         }
 
+        #[method_id(accessibilityColumnTitles)]
+        fn column_titles(&self) -> Option<Id<NSArray<NSString>>> {
+            self.resolve(|node| {
+                let mut descendants = VecDeque::from([*node]);
+                let mut titles = Vec::new();
+
+                while let Some(parent) = descendants.pop_front() {
+                    for child in parent.filtered_children(&filter) {
+                        if child.role() == Role::ColumnHeader
+                            && let Some(label) = child.label()
+                        {
+                            titles.push(NSString::from_str(&label));
+                        }
+                        descendants.push_back(child);
+                    }
+                }
+
+                NSArray::from_vec(titles)
+            })
+        }
+
+        #[method_id(accessibilityHeader)]
+        fn header(&self) -> Option<Id<PlatformNode>> {
+            self.resolve_with_context(|node, _, context| {
+                node.filtered_children(&filter)
+                    .find(|child| child.role() == Role::RowGroup)
+                    .map(|header| context.get_or_create_platform_node(header.id()))
+            })
+            .flatten()
+        }
+
         #[method_id(accessibilitySelectedColumns)]
         fn selected_columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
             self.table_descendants(&[Role::ColumnHeader], true)
@@ -1264,7 +1295,27 @@ declare_class!(
 
         #[method_id(accessibilitySelectedCells)]
         fn selected_cells(&self) -> Option<Id<NSArray<PlatformNode>>> {
-            self.table_descendants(&[Role::Cell, Role::GridCell], true)
+            self.table_descendants(&[Role::Cell, Role::GridCell, Role::RowHeader], true)
+        }
+
+        #[method_id(accessibilityRowHeaderUIElements)]
+        fn row_header_ui_elements(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.table_descendants(&[Role::RowHeader], false)
+        }
+
+        #[method_id(accessibilityVisibleRows)]
+        fn visible_rows(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.visible_table_descendants(&[Role::Row, Role::TreeItem])
+        }
+
+        #[method_id(accessibilityVisibleColumns)]
+        fn visible_columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.visible_table_descendants(&[Role::ColumnHeader])
+        }
+
+        #[method_id(accessibilityVisibleCells)]
+        fn visible_cells(&self) -> Option<Id<NSArray<PlatformNode>>> {
+            self.visible_table_descendants(&[Role::Cell, Role::GridCell, Role::RowHeader])
         }
 
         #[method(accessibilityIndex)]
@@ -1301,6 +1352,22 @@ declare_class!(
             .unwrap_or(false)
         }
 
+        #[method(accessibilitySortDirection)]
+        fn sort_direction(&self) -> NSAccessibilitySortDirection {
+            self.resolve(|node| match node.sort_direction() {
+                Some(accesskit::SortDirection::Ascending) => {
+                    NSAccessibilitySortDirection::Ascending
+                }
+                Some(accesskit::SortDirection::Descending) => {
+                    NSAccessibilitySortDirection::Descending
+                }
+                Some(accesskit::SortDirection::Other) | None => {
+                    NSAccessibilitySortDirection::Unknown
+                }
+            })
+            .unwrap_or(NSAccessibilitySortDirection::Unknown)
+        }
+
         /// Returns the column header UI elements for the table.
         /// This is required by the NSAccessibilityTable protocol so VoiceOver
         /// can associate data cells with their column headers.
@@ -1312,7 +1379,10 @@ declare_class!(
         #[method(accessibilityColumnIndexRange)]
         fn column_index_range(&self) -> NSRange {
             self.resolve(|node| {
-                if !matches!(node.role(), Role::Cell | Role::GridCell | Role::ColumnHeader) {
+                if !matches!(
+                    node.role(),
+                    Role::Cell | Role::GridCell | Role::RowHeader | Role::ColumnHeader
+                ) {
                     return NSRange::new(0, 0);
                 }
                 match node.column_index() {
@@ -1329,7 +1399,7 @@ declare_class!(
                 let role = node.role();
                 let row = match role {
                     Role::Row | Role::ListItem | Role::TreeItem => node.row_index(),
-                    Role::Cell | Role::GridCell | Role::ColumnHeader | Role::RowHeader => {
+                    Role::Cell | Role::GridCell | Role::RowHeader => {
                         let mut n = *node;
                         let idx = loop {
                             if let Some(parent) = n.parent() {
@@ -1356,7 +1426,7 @@ declare_class!(
         #[method_id(accessibilityColumnHeaderUIElement)]
         fn column_header_ui_element(&self) -> Option<Id<PlatformNode>> {
             self.resolve_with_context(|node, _, context| {
-                if !matches!(node.role(), Role::Cell | Role::GridCell) {
+                if !matches!(node.role(), Role::Cell | Role::GridCell | Role::RowHeader) {
                     return None;
                 }
                 let col = node.column_index()?;
@@ -1373,21 +1443,47 @@ declare_class!(
                     }
                 };
                 // Find the ColumnHeader with matching column_index.
-                for row in grid.filtered_children(&filter) {
-                    if row.role() != Role::Row {
-                        continue;
-                    }
-                    for cell in row.filtered_children(&filter) {
-                        if cell.role() == Role::ColumnHeader
-                            && cell.column_index() == Some(col)
+                let mut descendants = VecDeque::from([grid]);
+                while let Some(parent) = descendants.pop_front() {
+                    for child in parent.filtered_children(&filter) {
+                        if child.role() == Role::ColumnHeader
+                            && child.column_index() == Some(col)
                         {
-                            return Some(context.get_or_create_platform_node(cell.id()));
+                            return Some(context.get_or_create_platform_node(child.id()));
                         }
+                        descendants.push_back(child);
                     }
                 }
                 None
             })
             .flatten()
+        }
+
+        #[method_id(accessibilityCellForColumn:row:)]
+        fn cell_for_column_row(
+            &self,
+            column: NSInteger,
+            row: NSInteger,
+        ) -> Option<Id<PlatformNode>> {
+            (column >= 0 && row >= 0)
+                .then(|| {
+                    self.resolve_with_context(|node, _, context| {
+                        let row = node.filtered_children(&filter).find(|child| {
+                            child.role() == Role::Row && child.row_index() == Some(row as usize)
+                        })?;
+
+                        row.filtered_children(&filter)
+                            .find(|cell| {
+                                matches!(
+                                    cell.role(),
+                                    Role::Cell | Role::GridCell | Role::RowHeader
+                                ) && cell.column_index() == Some(column as usize)
+                            })
+                            .map(|cell| context.get_or_create_platform_node(cell.id()))
+                    })
+                    .flatten()
+                })
+                .flatten()
         }
 
         #[method(accessibilityPerformPick)]
@@ -1594,12 +1690,25 @@ declare_class!(
                 if selector == sel!(accessibilityRows)
                     || selector == sel!(accessibilitySelectedRows)
                     || selector == sel!(accessibilityColumns)
+                    || selector == sel!(accessibilityColumnTitles)
                     || selector == sel!(accessibilitySelectedColumns)
                     || selector == sel!(accessibilitySelectedCells)
                     || selector == sel!(accessibilityColumnHeaderUIElements)
+                    || selector == sel!(accessibilityRowHeaderUIElements)
+                    || selector == sel!(accessibilityVisibleRows)
+                    || selector == sel!(accessibilityVisibleColumns)
+                    || selector == sel!(accessibilityVisibleCells)
                 {
                     let wrapper = NodeWrapper(node);
                     return wrapper.is_container_with_selectable_children()
+                }
+                if selector == sel!(accessibilityHeader) {
+                    return matches!(
+                        node.role(),
+                        Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+                    ) && node
+                        .filtered_children(&filter)
+                        .any(|child| child.role() == Role::RowGroup);
                 }
                 if selector == sel!(accessibilityIndex) {
                     return match node.role() {
@@ -1620,10 +1729,13 @@ declare_class!(
                         Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
                     );
                 }
+                if selector == sel!(accessibilitySortDirection) {
+                    return node.sort_direction().is_some();
+                }
                 if selector == sel!(accessibilityColumnIndexRange) {
                     return matches!(
                         node.role(),
-                        Role::Cell | Role::GridCell | Role::ColumnHeader
+                        Role::Cell | Role::GridCell | Role::RowHeader | Role::ColumnHeader
                     ) && node.column_index().is_some();
                 }
                 if selector == sel!(accessibilityRowIndexRange) {
@@ -1634,13 +1746,18 @@ declare_class!(
                             | Role::TreeItem
                             | Role::Cell
                             | Role::GridCell
-                            | Role::ColumnHeader
                             | Role::RowHeader
                     );
                 }
                 if selector == sel!(accessibilityColumnHeaderUIElement) {
-                    return matches!(node.role(), Role::Cell | Role::GridCell)
+                    return matches!(node.role(), Role::Cell | Role::GridCell | Role::RowHeader)
                         && node.column_index().is_some();
+                }
+                if selector == sel!(accessibilityCellForColumn:row:) {
+                    return matches!(
+                        node.role(),
+                        Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+                    );
                 }
                 if selector == sel!(setAccessibilitySelected:)
                     || selector == sel!(accessibilityPerformPick)
@@ -1753,6 +1870,50 @@ impl PlatformNode {
                 for child in parent.filtered_children(&filter) {
                     if roles.contains(&child.role())
                         && (!selected_only || child.is_selected() == Some(true))
+                    {
+                        platform_nodes.push(context.get_or_create_platform_node(child.id()));
+                    }
+                    descendants.push_back(child);
+                }
+            }
+
+            NSArray::from_vec(platform_nodes)
+        })
+    }
+
+    fn visible_table_descendants(
+        &self,
+        roles: &[Role],
+    ) -> Option<Id<NSArray<PlatformNode>>> {
+        self.resolve_with_context(|node, _, context| {
+            if !matches!(
+                node.role(),
+                Role::Grid | Role::Table | Role::ListGrid | Role::TreeGrid
+            ) {
+                return NSArray::from_vec(Vec::new());
+            }
+
+            let view = match context.view.load() {
+                Some(view) => view,
+                None => return NSArray::from_vec(Vec::new()),
+            };
+            let view_rect = view.bounds();
+            let factor = view.window().map_or(1.0, |window| window.backingScaleFactor());
+            let host_bounds = accesskit::Rect::new(
+                0.0,
+                0.0,
+                view_rect.size.width * factor,
+                view_rect.size.height * factor,
+            );
+
+            let mut descendants = VecDeque::from([*node]);
+            let mut platform_nodes = Vec::new();
+
+            while let Some(parent) = descendants.pop_front() {
+                for child in parent.filtered_children(&filter) {
+                    if roles.contains(&child.role())
+                        && visible_bounding_box(&child, host_bounds)
+                            .is_some_and(|bounds| !bounds.fully_outside)
                     {
                         platform_nodes.push(context.get_or_create_platform_node(child.id()));
                     }

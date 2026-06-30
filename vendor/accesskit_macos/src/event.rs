@@ -344,7 +344,7 @@ impl EventGenerator {
                 &mut self.selected_rows_changed,
                 unsafe { NSAccessibilitySelectedRowsChangedNotification },
             ),
-            Role::Cell | Role::GridCell => (
+            Role::Cell | Role::GridCell | Role::RowHeader => (
                 &mut self.selected_cells_changed,
                 unsafe { NSAccessibilitySelectedCellsChangedNotification },
             ),
@@ -920,8 +920,8 @@ mod tests {
 
         let mut row = NodeData::new(Role::Row);
         row.set_selected(false);
-        let mut cell = NodeData::new(Role::Cell);
-        cell.set_selected(false);
+        let mut row_header = NodeData::new(Role::RowHeader);
+        row_header.set_selected(false);
         let mut column = NodeData::new(Role::ColumnHeader);
         column.set_selected(false);
 
@@ -929,16 +929,20 @@ mod tests {
             (ROOT, root([BUTTON])),
             (BUTTON, grid),
             (BUTTON_2, row.clone()),
-            (TEXT_RUN, cell.clone()),
+            (TEXT_RUN, row_header.clone()),
             (TOOLTIP, column.clone()),
         ]);
 
         row.set_selected(true);
-        cell.set_selected(true);
+        row_header.set_selected(true);
         column.set_selected(true);
         let generator = update_tree(
             &mut tree,
-            vec![(BUTTON_2, row), (TEXT_RUN, cell), (TOOLTIP, column)],
+            vec![
+                (BUTTON_2, row),
+                (TEXT_RUN, row_header),
+                (TOOLTIP, column),
+            ],
         );
 
         assert_eq!(

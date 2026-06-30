@@ -2474,12 +2474,11 @@ fn table_roles_and_indices() {
 
     let tree = ui.accessibility_tree();
     assert!(
-        find_node(&tree, Role::Grid).is_some(),
-        "Grid node should exist"
+        find_node(&tree, Role::Table).is_some(),
+        "Table node should exist"
     );
-    let table_node = find_node(&tree, Role::Grid).unwrap();
-    // row_count includes the header row + data rows
-    assert_eq!(table_node.row_count(), Some(3));
+    let table_node = find_node(&tree, Role::Table).unwrap();
+    assert_eq!(table_node.row_count(), Some(2));
     assert_eq!(table_node.column_count(), Some(1));
 
     let row_nodes: Vec<&accesskit::Node> = tree
@@ -2488,15 +2487,10 @@ fn table_roles_and_indices() {
         .filter(|(_, n)| n.role() == Role::Row)
         .map(|(_, n)| n)
         .collect();
-    assert_eq!(
-        row_nodes.len(),
-        3,
-        "Should have 3 Row nodes (1 header + 2 data)"
-    );
+    assert_eq!(row_nodes.len(), 2, "Should have 2 data Row nodes");
     assert!(row_nodes.iter().all(|node| has_non_empty_bounds(node)));
     assert_eq!(row_nodes[0].row_index(), Some(0));
     assert_eq!(row_nodes[1].row_index(), Some(1));
-    assert_eq!(row_nodes[2].row_index(), Some(2));
 
     let cells: Vec<&accesskit::Node> = tree
         .nodes
@@ -2514,10 +2508,10 @@ fn table_roles_and_indices() {
         .collect();
     assert_eq!(headers.len(), 1, "Should have 1 ColumnHeader node");
     assert_eq!(headers[0].label(), Some("Name"));
-    assert_eq!(headers[0].row_index(), Some(0));
+    assert_eq!(headers[0].row_index(), None);
     assert_eq!(headers[0].column_index(), Some(0));
     assert_eq!(cells[0].label(), Some("Alice"));
-    assert_eq!(cells[0].row_index(), Some(1));
+    assert_eq!(cells[0].row_index(), Some(0));
     assert_eq!(cells[0].column_index(), Some(0));
 }
 
@@ -2541,9 +2535,9 @@ fn table_selection_state_and_metadata() {
     );
 
     let tree = ui.accessibility_tree();
-    let grid = find_node(&tree, Role::Grid).expect("Grid node");
-    assert_eq!(grid.row_count(), Some(3));
-    assert_eq!(grid.column_count(), Some(2));
+    let table = find_node(&tree, Role::Table).expect("Table node");
+    assert_eq!(table.row_count(), Some(2));
+    assert_eq!(table.column_count(), Some(2));
 
     let rows: Vec<_> = tree
         .nodes
@@ -2551,9 +2545,8 @@ fn table_selection_state_and_metadata() {
         .filter(|(_, node)| node.role() == Role::Row)
         .map(|(_, node)| node)
         .collect();
-    assert_eq!(rows[0].is_selected(), None);
-    assert_eq!(rows[1].is_selected(), Some(false));
-    assert_eq!(rows[2].is_selected(), Some(true));
+    assert_eq!(rows[0].is_selected(), Some(false));
+    assert_eq!(rows[1].is_selected(), Some(true));
 
     let headers: Vec<_> = tree
         .nodes
@@ -2574,8 +2567,55 @@ fn table_selection_state_and_metadata() {
     assert_eq!(cells[1].is_selected(), Some(true));
     assert_eq!(cells[2].is_selected(), Some(false));
     assert_eq!(cells[3].is_selected(), Some(false));
-    assert_eq!(cells[1].row_index(), Some(1));
+    assert_eq!(cells[1].row_index(), Some(0));
     assert_eq!(cells[1].column_index(), Some(1));
+}
+
+#[test]
+fn table_row_headers_and_sort_direction() {
+    use iced_widget::table;
+
+    let columns = [
+        table::column(text("Name"), |(name, _): (String, u8)| text(name)).row_header(true),
+        table::column(text("Age"), |(_, age): (String, u8)| text(age))
+            .sort_direction(table::SortDirection::Ascending),
+    ];
+    let rows = vec![("Alice".to_string(), 29), ("Bob".to_string(), 34)];
+    let mut ui = simulator::<(), Theme, Renderer>(table::table(columns, rows));
+
+    let tree = ui.accessibility_tree();
+    let table = find_node(&tree, Role::Table).expect("Table node");
+    assert_eq!(table.row_count(), Some(2));
+    assert_eq!(table.column_count(), Some(2));
+
+    let row_headers: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::RowHeader)
+        .map(|(_, node)| node)
+        .collect();
+    assert_eq!(row_headers.len(), 2);
+    assert_eq!(row_headers[0].label(), Some("Alice"));
+    assert_eq!(row_headers[0].row_index(), Some(0));
+    assert_eq!(row_headers[0].column_index(), Some(0));
+
+    let age_header = tree
+        .nodes
+        .iter()
+        .find(|(_, node)| node.role() == Role::ColumnHeader && node.label() == Some("Age"))
+        .map(|(_, node)| node)
+        .expect("Age column header");
+    assert_eq!(
+        age_header.sort_direction(),
+        Some(accesskit::SortDirection::Ascending)
+    );
+
+    let header_groups: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == Role::RowGroup)
+        .collect();
+    assert_eq!(header_groups.len(), 1);
 }
 
 // === ACTION DISPATCH FOR CHECKBOX / TOGGLER / RADIO ===
