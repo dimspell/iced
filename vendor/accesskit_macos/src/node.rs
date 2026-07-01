@@ -658,21 +658,25 @@ declare_class!(
 
         #[method_id(accessibilityValue)]
         fn value(&self) -> Option<Id<NSObject>> {
-            self.resolve(|node| {
-                let wrapper = NodeWrapper(node);
-                wrapper.value().map(|value| match value {
-                    Value::Bool(value) => {
-                        Id::into_super(Id::into_super(NSNumber::new_bool(value)))
-                    }
-                    Value::Number(value) => {
-                        Id::into_super(Id::into_super(NSNumber::new_f64(value)))
-                    }
-                    Value::String(value) => {
-                        Id::into_super(NSString::from_str(&value))
-                    }
+            let result: Option<Id<NSObject>> = self
+                .resolve(|node| {
+                    let wrapper = NodeWrapper(node);
+                    wrapper.value().map(|value| match value {
+                        Value::Bool(value) => {
+                            Id::into_super(Id::into_super(NSNumber::new_bool(value)))
+                        }
+                        Value::Number(value) => {
+                            Id::into_super(Id::into_super(NSNumber::new_f64(value)))
+                        }
+                        Value::String(value) => {
+                            let s: String = value;
+                            Id::into_super(NSString::from_str(&s))
+                        }
+                    })
                 })
-            })
-            .flatten()
+                .flatten();
+            eprintln!("[VO DEBUG] accessibilityValue -> {:?}", result.is_some());
+            result
         }
 
         #[method_id(accessibilityValueDescription)]
@@ -1252,11 +1256,6 @@ declare_class!(
             .flatten()
         }
 
-        #[method_id(accessibilityColumns)]
-        fn columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
-            self.table_descendants(&[Role::ColumnHeader], false)
-        }
-
         #[method_id(accessibilityColumnTitles)]
         fn column_titles(&self) -> Option<Id<NSArray<NSString>>> {
             self.resolve(|node| {
@@ -1286,11 +1285,6 @@ declare_class!(
                     .map(|header| context.get_or_create_platform_node(header.id()))
             })
             .flatten()
-        }
-
-        #[method_id(accessibilitySelectedColumns)]
-        fn selected_columns(&self) -> Option<Id<NSArray<PlatformNode>>> {
-            self.table_descendants(&[Role::ColumnHeader], true)
         }
 
         #[method_id(accessibilitySelectedCells)]
@@ -1378,19 +1372,37 @@ declare_class!(
 
         #[method(accessibilityColumnIndexRange)]
         fn column_index_range(&self) -> NSRange {
-            self.resolve(|node| {
-                if !matches!(
-                    node.role(),
-                    Role::Cell | Role::GridCell | Role::RowHeader | Role::ColumnHeader
-                ) {
-                    return NSRange::new(0, 0);
-                }
-                match node.column_index() {
-                    Some(col) => NSRange::new(col, 1),
-                    None => NSRange::new(0, 0),
-                }
-            })
-            .unwrap_or(NSRange::new(0, 0))
+            let result = self
+                .resolve(|node| {
+                    let role = node.role();
+                    if !matches!(
+                        role,
+                        Role::Cell | Role::GridCell | Role::RowHeader | Role::ColumnHeader
+                    ) {
+                        return NSRange::new(0, 0);
+                    }
+                    match node.column_index() {
+                        Some(col) => {
+                            eprintln!(
+                                "[VO DEBUG] accessibilityColumnIndexRange role={:?} col={}",
+                                role, col
+                            );
+                            NSRange::new(col, 1)
+                        }
+                        None => {
+                            eprintln!(
+                                "[VO DEBUG] accessibilityColumnIndexRange role={:?} NO column_index",
+                                role
+                            );
+                            NSRange::new(0, 0)
+                        }
+                    }
+                })
+                .unwrap_or_else(|| {
+                    eprintln!("[VO DEBUG] accessibilityColumnIndexRange RESOLVE FAILED");
+                    NSRange::new(0, 0)
+                });
+            result
         }
 
         #[method(accessibilityRowIndexRange)]
@@ -1425,11 +1437,17 @@ declare_class!(
 
         #[method_id(accessibilityColumnHeaderUIElement)]
         fn column_header_ui_element(&self) -> Option<Id<PlatformNode>> {
-            self.resolve_with_context(|node, _, context| {
+            let result = self.resolve_with_context(|node, _, context| {
                 if !matches!(node.role(), Role::Cell | Role::GridCell | Role::RowHeader) {
                     return None;
                 }
-                let col = node.column_index()?;
+                let col = match node.column_index() {
+                    Some(c) => c,
+                    None => {
+                        eprintln!("[VO DEBUG] column_header_ui_element role={:?} NO column_index", node.role());
+                        return None;
+                    }
+                };
                 // Walk up to the containing Grid/Table.
                 let mut n = *node;
                 let grid = loop {
@@ -1449,14 +1467,19 @@ declare_class!(
                         if child.role() == Role::ColumnHeader
                             && child.column_index() == Some(col)
                         {
-                            return Some(context.get_or_create_platform_node(child.id()));
+                            let node = context.get_or_create_platform_node(child.id());
+                            eprintln!("[VO DEBUG] column_header_ui_element FOUND for col={}", col);
+                            return Some(node);
                         }
                         descendants.push_back(child);
                     }
                 }
+                eprintln!("[VO DEBUG] column_header_ui_element NOT FOUND for col={}", col);
                 None
             })
-            .flatten()
+            .flatten();
+            eprintln!("[VO DEBUG] column_header_ui_element -> {:?}", result.is_some());
+            result
         }
 
         #[method_id(accessibilityCellForColumn:row:)]
@@ -1689,9 +1712,7 @@ declare_class!(
                 }
                 if selector == sel!(accessibilityRows)
                     || selector == sel!(accessibilitySelectedRows)
-                    || selector == sel!(accessibilityColumns)
                     || selector == sel!(accessibilityColumnTitles)
-                    || selector == sel!(accessibilitySelectedColumns)
                     || selector == sel!(accessibilitySelectedCells)
                     || selector == sel!(accessibilityColumnHeaderUIElements)
                     || selector == sel!(accessibilityRowHeaderUIElements)
@@ -1842,10 +1863,15 @@ impl PlatformNode {
 
     fn children_internal(&self) -> Option<Id<NSArray<PlatformNode>>> {
         self.resolve_with_context(|node, _, context| {
-            let platform_nodes = node
+            let platform_nodes: Vec<Id<PlatformNode>> = node
                 .filtered_children(filter)
                 .map(|child| context.get_or_create_platform_node(child.id()))
-                .collect::<Vec<Id<PlatformNode>>>();
+                .collect();
+            eprintln!(
+                "[VO DEBUG] children_internal role={:?} count={}",
+                node.role(),
+                platform_nodes.len()
+            );
             NSArray::from_vec(platform_nodes)
         })
     }
