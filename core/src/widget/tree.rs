@@ -6,7 +6,7 @@ use crate::Widget;
 use std::any::{self, Any};
 use std::borrow::{Borrow, BorrowMut};
 #[cfg(feature = "accessibility")]
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 
 /// A persistent state widget tree.
@@ -37,6 +37,14 @@ pub struct Tree {
     /// last accessibility tree build.
     #[cfg(feature = "accessibility")]
     pub accesskit_focused: Cell<bool>,
+
+    /// Additional accesskit node IDs belonging to this widget's custom
+    /// accessibility subtree (e.g. individual cells/rows in a table widget).
+    /// These are registered during `accessibility()` so action dispatch
+    /// (Focus, ScrollIntoView) targeting these custom nodes can be routed
+    /// back to this widget.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_custom_ids: RefCell<Vec<accesskit::NodeId>>,
 }
 
 impl Tree {
@@ -52,6 +60,8 @@ impl Tree {
             accesskit_bounds: Cell::new(None),
             #[cfg(feature = "accessibility")]
             accesskit_focused: Cell::new(false),
+            #[cfg(feature = "accessibility")]
+            accesskit_custom_ids: RefCell::new(Vec::new()),
         }
     }
 
@@ -74,6 +84,8 @@ impl Tree {
             accesskit_bounds: Cell::new(None),
             #[cfg(feature = "accessibility")]
             accesskit_focused: Cell::new(false),
+            #[cfg(feature = "accessibility")]
+            accesskit_custom_ids: RefCell::new(Vec::new()),
         }
     }
 
@@ -81,6 +93,17 @@ impl Tree {
     #[cfg(feature = "accessibility")]
     pub fn set_accesskit_node_id(&self, id: accesskit::NodeId) {
         self.accesskit_node_id.set(Some(id));
+    }
+
+    /// Registers additional accesskit [`NodeId`]s that belong to this widget's
+    /// custom accessibility subtree. These IDs are checked by
+    /// [`contains_accesskit_node_id`] so actions targeting custom child nodes
+    /// can be routed back to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn register_custom_accesskit_ids(&self, ids: &[accesskit::NodeId]) {
+        self.accesskit_custom_ids
+            .borrow_mut()
+            .extend_from_slice(ids);
     }
 
     /// Returns the accesskit [`NodeId`] assigned to this widget, if any.
@@ -106,6 +129,7 @@ impl Tree {
     #[cfg(feature = "accessibility")]
     pub fn contains_accesskit_node_id(&self, id: accesskit::NodeId) -> bool {
         self.accesskit_node_id() == Some(id)
+            || self.accesskit_custom_ids.borrow().contains(&id)
             || self
                 .children
                 .iter()

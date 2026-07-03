@@ -340,18 +340,17 @@ impl EventGenerator {
         };
 
         let (changed, notification) = match node.role() {
-            Role::Row | Role::TreeItem => (
-                &mut self.selected_rows_changed,
-                unsafe { NSAccessibilitySelectedRowsChangedNotification },
-            ),
-            Role::Cell | Role::GridCell | Role::RowHeader => (
-                &mut self.selected_cells_changed,
-                unsafe { NSAccessibilitySelectedCellsChangedNotification },
-            ),
-            Role::ColumnHeader => (
-                &mut self.selected_columns_changed,
-                unsafe { NSAccessibilitySelectedColumnsChangedNotification },
-            ),
+            Role::Row | Role::TreeItem => (&mut self.selected_rows_changed, unsafe {
+                NSAccessibilitySelectedRowsChangedNotification
+            }),
+            Role::Cell | Role::GridCell | Role::RowHeader => {
+                (&mut self.selected_cells_changed, unsafe {
+                    NSAccessibilitySelectedCellsChangedNotification
+                })
+            }
+            Role::ColumnHeader => (&mut self.selected_columns_changed, unsafe {
+                NSAccessibilitySelectedColumnsChangedNotification
+            }),
             _ => return,
         };
 
@@ -418,8 +417,7 @@ impl TreeChangeHandler for EventGenerator {
                         self.enqueue_moved(new_node);
                     }
                     if (old_bounds.x1 - old_bounds.x0) != (new_bounds.x1 - new_bounds.x0)
-                        || (old_bounds.y1 - old_bounds.y0)
-                            != (new_bounds.y1 - new_bounds.y0)
+                        || (old_bounds.y1 - old_bounds.y0) != (new_bounds.y1 - new_bounds.y0)
                     {
                         self.enqueue_resized(new_node);
                     }
@@ -636,15 +634,13 @@ mod tests {
             ],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityCreatedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityCreatedNotification
+        }));
         assert_eq!(
-            notification_count(
-                &generator,
-                unsafe { NSAccessibilityHelpTagCreatedNotification }
-            ),
+            notification_count(&generator, unsafe {
+                NSAccessibilityHelpTagCreatedNotification
+            }),
             0
         );
     }
@@ -664,10 +660,9 @@ mod tests {
             ],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityHelpTagCreatedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityHelpTagCreatedNotification
+        }));
     }
 
     #[test]
@@ -675,20 +670,16 @@ mod tests {
         let mut hidden_tooltip = tooltip("Help", rect(30.0, 0.0, 80.0, 20.0));
         hidden_tooltip.set_hidden();
 
-        let mut tree = initial_tree(vec![
-            (ROOT, root([TOOLTIP])),
-            (TOOLTIP, hidden_tooltip),
-        ]);
+        let mut tree = initial_tree(vec![(ROOT, root([TOOLTIP])), (TOOLTIP, hidden_tooltip)]);
 
         let generator = update_tree(
             &mut tree,
             vec![(TOOLTIP, tooltip("Help", rect(30.0, 0.0, 80.0, 20.0)))],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityHelpTagCreatedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityHelpTagCreatedNotification
+        }));
     }
 
     #[test]
@@ -704,10 +695,9 @@ mod tests {
         );
 
         assert_eq!(
-            notification_count(
-                &generator,
-                unsafe { NSAccessibilityHelpTagCreatedNotification }
-            ),
+            notification_count(&generator, unsafe {
+                NSAccessibilityHelpTagCreatedNotification
+            }),
             0
         );
     }
@@ -725,10 +715,9 @@ mod tests {
         );
 
         assert_eq!(
-            notification_count(
-                &generator,
-                unsafe { NSAccessibilityHelpTagCreatedNotification }
-            ),
+            notification_count(&generator, unsafe {
+                NSAccessibilityHelpTagCreatedNotification
+            }),
             0
         );
     }
@@ -748,10 +737,9 @@ mod tests {
             ],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityLayoutChangedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityLayoutChangedNotification
+        }));
     }
 
     #[test]
@@ -764,10 +752,9 @@ mod tests {
 
         let generator = update_tree(&mut tree, vec![(ROOT, root([BUTTON]))]);
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityLayoutChangedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityLayoutChangedNotification
+        }));
     }
 
     #[test]
@@ -781,10 +768,9 @@ mod tests {
         let generator = update_tree(&mut tree, vec![(ROOT, root([BUTTON_2, BUTTON]))]);
 
         assert_eq!(
-            notification_count(
-                &generator,
-                unsafe { NSAccessibilityLayoutChangedNotification }
-            ),
+            notification_count(&generator, unsafe {
+                NSAccessibilityLayoutChangedNotification
+            }),
             1
         );
     }
@@ -801,10 +787,9 @@ mod tests {
             vec![(BUTTON, button("One", rect(10.0, 15.0, 20.0, 20.0)))],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityMovedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityMovedNotification
+        }));
     }
 
     #[test]
@@ -819,10 +804,9 @@ mod tests {
             vec![(BUTTON, button("One", rect(0.0, 0.0, 40.0, 30.0)))],
         );
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityResizedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityResizedNotification
+        }));
     }
 
     #[test]
@@ -858,14 +842,12 @@ mod tests {
         updated_button.set_value("Ready");
         let generator = update_tree(&mut tree, vec![(BUTTON, updated_button)]);
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityTitleChangedNotification }
-        ));
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilityValueChangedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityTitleChangedNotification
+        }));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilityValueChangedNotification
+        }));
     }
 
     #[test]
@@ -907,10 +889,9 @@ mod tests {
         });
         let generator = update_tree(&mut tree, vec![(BUTTON, text_input)]);
 
-        assert!(has_notification(
-            &generator,
-            unsafe { NSAccessibilitySelectedTextChangedNotification }
-        ));
+        assert!(has_notification(&generator, unsafe {
+            NSAccessibilitySelectedTextChangedNotification
+        }));
     }
 
     #[test]
@@ -938,11 +919,7 @@ mod tests {
         column.set_selected(true);
         let generator = update_tree(
             &mut tree,
-            vec![
-                (BUTTON_2, row),
-                (TEXT_RUN, row_header),
-                (TOOLTIP, column),
-            ],
+            vec![(BUTTON_2, row), (TEXT_RUN, row_header), (TOOLTIP, column)],
         );
 
         assert_eq!(
@@ -998,10 +975,7 @@ mod tests {
     #[test]
     fn text_input_marking_session_notifications_follow_marked_state() {
         let text_input = NodeData::new(Role::TextInput);
-        let mut tree = initial_tree(vec![
-            (ROOT, root([BUTTON])),
-            (BUTTON, text_input.clone()),
-        ]);
+        let mut tree = initial_tree(vec![(ROOT, root([BUTTON])), (BUTTON, text_input.clone())]);
 
         let mut marked = text_input.clone();
         marked.set_text_input_marked();
@@ -1038,17 +1012,14 @@ mod tests {
             vec![(ROOT, root([BUTTON, BUTTON_2])), (BUTTON_2, hidden)],
         );
 
-        assert!(!has_notification(
-            &generator,
-            unsafe { NSAccessibilityCreatedNotification }
-        ));
-        assert!(!has_notification(
-            &generator,
-            unsafe { NSAccessibilityMovedNotification }
-        ));
-        assert!(!has_notification(
-            &generator,
-            unsafe { NSAccessibilityResizedNotification }
-        ));
+        assert!(!has_notification(&generator, unsafe {
+            NSAccessibilityCreatedNotification
+        }));
+        assert!(!has_notification(&generator, unsafe {
+            NSAccessibilityMovedNotification
+        }));
+        assert!(!has_notification(&generator, unsafe {
+            NSAccessibilityResizedNotification
+        }));
     }
 }

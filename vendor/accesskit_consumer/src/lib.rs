@@ -283,4 +283,95 @@ mod tests {
         assert_eq!(cell_b_node.column_index(), Some(1));
         assert_eq!(cell_b_node.row_index(), Some(1));
     }
+
+    #[test]
+    fn table_scroll_and_action_round_trip() {
+        use accesskit::Action;
+        const TABLE_ID: LocalNodeId = LocalNodeId(200);
+        const HEADER_ROW_ID: LocalNodeId = LocalNodeId(201);
+        const HEADER_ID: LocalNodeId = LocalNodeId(202);
+        const ROW_ID: LocalNodeId = LocalNodeId(203);
+        const CELL_ID: LocalNodeId = LocalNodeId(204);
+
+        // Build a table with scroll position and actions, matching
+        // what the dispel-gui TableWidget generates.
+        let mut table = Node::new(Role::Table);
+        table.set_row_count(100);
+        table.set_column_count(3);
+        table.set_scroll_y(42.0);
+        table.set_scroll_x(10.0);
+        table.set_children(vec![HEADER_ROW_ID, ROW_ID]);
+
+        let mut header_row = Node::new(Role::Row);
+        header_row.set_row_index(0);
+        header_row.set_children(vec![HEADER_ID]);
+
+        let mut header = Node::new(Role::ColumnHeader);
+        header.set_column_index(2);
+        header.set_label("Header Name");
+
+        let mut row = Node::new(Role::Row);
+        row.set_row_index(5);
+        row.add_action(Action::Focus);
+        row.add_action(Action::ScrollIntoView);
+        row.set_children(vec![CELL_ID]);
+
+        let mut cell = Node::new(Role::Cell);
+        cell.set_column_index(2);
+        cell.set_row_index(5);
+        cell.set_column_span(1);
+        cell.set_row_span(1);
+        cell.set_value("test_value");
+        cell.add_action(Action::Focus);
+        cell.add_action(Action::ScrollIntoView);
+        cell.push_labelled_by(HEADER_ID);
+
+        let update = TreeUpdate {
+            nodes: vec![
+                (TABLE_ID, table),
+                (HEADER_ROW_ID, header_row),
+                (HEADER_ID, header),
+                (ROW_ID, row),
+                (CELL_ID, cell),
+            ],
+            tree: Some(Tree::new(TABLE_ID)),
+            tree_id: TreeId::ROOT,
+            focus: TABLE_ID,
+        };
+        let tree = crate::tree::Tree::new(update, false);
+        let state = tree.state();
+
+        // Table properties
+        let table_node = state.node_by_id(nid(TABLE_ID)).unwrap();
+        assert_eq!(table_node.data().scroll_y(), Some(42.0));
+        assert_eq!(table_node.data().scroll_x(), Some(10.0));
+        assert_eq!(table_node.data().row_count(), Some(100));
+        assert_eq!(table_node.data().column_count(), Some(3));
+
+        // Row properties
+        let row_node = state.node_by_id(nid(ROW_ID)).unwrap();
+        assert_eq!(row_node.row_index(), Some(5));
+        assert!(row_node.data().supports_action(Action::Focus));
+        assert!(row_node.data().supports_action(Action::ScrollIntoView));
+
+        // Cell properties
+        let cell_node = state.node_by_id(nid(CELL_ID)).unwrap();
+        assert_eq!(cell_node.column_index(), Some(2));
+        assert_eq!(cell_node.row_index(), Some(5));
+        assert_eq!(cell_node.column_span(), Some(1));
+        assert_eq!(cell_node.row_span(), Some(1));
+        assert_eq!(cell_node.value(), Some("test_value".into()));
+        assert!(cell_node.data().supports_action(Action::Focus));
+        assert!(cell_node.data().supports_action(Action::ScrollIntoView));
+
+        // labelled_by should point to the header
+        let labelled: alloc::vec::Vec<_> = cell_node.labelled_by().collect();
+        assert_eq!(labelled.len(), 1);
+        assert_eq!(labelled[0].id(), nid(HEADER_ID));
+
+        // Header properties
+        let header_node = state.node_by_id(nid(HEADER_ID)).unwrap();
+        assert_eq!(header_node.column_index(), Some(2));
+        assert_eq!(header_node.data().label(), Some("Header Name".into()));
+    }
 }

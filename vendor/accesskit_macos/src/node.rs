@@ -335,7 +335,9 @@ fn visible_bounding_box(node: &Node, host_bounds: accesskit::Rect) -> Option<Vis
 
         let scrolls_x = parent.scroll_x_max() > parent.scroll_x_min();
         let scrolls_y = parent.scroll_y_max() > parent.scroll_y_min();
-        if (scrolls_x || scrolls_y) && let Some(parent_bounds) = parent.bounding_box() {
+        if (scrolls_x || scrolls_y)
+            && let Some(parent_bounds) = parent.bounding_box()
+        {
             let clipped = clip_or_anchor(result.rect, parent_bounds);
             result.rect = clipped.rect;
             result.fully_outside |= clipped.fully_outside;
@@ -362,10 +364,7 @@ fn controlled_popup<'a>(node: &'a Node<'a>) -> Option<Node<'a>> {
         .find(|controlled| controlled.role() == Role::MenuListPopup)
 }
 
-fn nearest_node_supporting_action<'a>(
-    mut node: Node<'a>,
-    action: Action,
-) -> Option<Node<'a>> {
+fn nearest_node_supporting_action<'a>(mut node: Node<'a>, action: Action) -> Option<Node<'a>> {
     loop {
         if node.supports_action(action, &filter) {
             return Some(node);
@@ -1228,11 +1227,11 @@ declare_class!(
                 if !wrapper.is_container_with_selectable_children() {
                     return None;
                 }
-                let platform_nodes = node
-                    .filtered_children(&filter)
+                let platform_nodes: Vec<Id<PlatformNode>> = node
+                    .filtered_children(filter)
                     .filter(|child| matches!(child.role(), Role::Row | Role::TreeItem))
                     .map(|child| context.get_or_create_platform_node(child.id()))
-                    .collect::<Vec<Id<PlatformNode>>>();
+                    .collect();
                 Some(NSArray::from_vec(platform_nodes))
             })
             .flatten()
@@ -1867,11 +1866,6 @@ impl PlatformNode {
                 .filtered_children(filter)
                 .map(|child| context.get_or_create_platform_node(child.id()))
                 .collect();
-            eprintln!(
-                "[VO DEBUG] children_internal role={:?} count={}",
-                node.role(),
-                platform_nodes.len()
-            );
             NSArray::from_vec(platform_nodes)
         })
     }
@@ -1907,10 +1901,7 @@ impl PlatformNode {
         })
     }
 
-    fn visible_table_descendants(
-        &self,
-        roles: &[Role],
-    ) -> Option<Id<NSArray<PlatformNode>>> {
+    fn visible_table_descendants(&self, roles: &[Role]) -> Option<Id<NSArray<PlatformNode>>> {
         self.resolve_with_context(|node, _, context| {
             if !matches!(
                 node.role(),
@@ -1924,7 +1915,9 @@ impl PlatformNode {
                 None => return NSArray::from_vec(Vec::new()),
             };
             let view_rect = view.bounds();
-            let factor = view.window().map_or(1.0, |window| window.backingScaleFactor());
+            let factor = view
+                .window()
+                .map_or(1.0, |window| window.backingScaleFactor());
             let host_bounds = accesskit::Rect::new(
                 0.0,
                 0.0,

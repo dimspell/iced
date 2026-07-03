@@ -11,7 +11,10 @@ use objc2::rc::{Id, WeakId};
 use objc2_app_kit::*;
 use objc2_foundation::MainThreadMarker;
 use std::fmt::Debug;
-use std::{cell::{Cell, RefCell}, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 pub(crate) trait ActionHandlerNoMut {
     fn do_action(&self, request: ActionRequest);

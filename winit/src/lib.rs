@@ -1155,13 +1155,25 @@ async fn run_instance<P>(
                                 window.request_redraw(shell.redraw_request());
                             }
 
-                            let should_update_accessibility_tree = window
+                            let have_pending = !accessibility_actions.is_empty();
+                            let should_debounce_value_update = window
                                 .debounce_accessibility_value_update(numeric_value_action_received);
 
-                            // Action messages update application state on the next redraw. Avoid
-                            // sending the pre-action value back to assistive technologies first.
-                            if accessibility_actions.is_empty() && should_update_accessibility_tree
-                            {
+                            // Determine if we should update the accessibility tree now:
+                            //   - If there are no pending actions: follow the debounce for
+                            //     value updates (Increment/Decrement/SetValue).
+                            //   - If there ARE pending actions (Focus, ScrollIntoView, etc.):
+                            //     process them immediately so VoiceOver sees the updated tree
+                            //     (especially scroll positions for off-screen rows).
+                            let should_update_tree = if have_pending {
+                                // Non-value actions affect tree structure/scroll — always
+                                // update immediately. Value actions are debounced below.
+                                !numeric_value_action_received
+                            } else {
+                                should_debounce_value_update
+                            };
+
+                            if should_update_tree {
                                 let mut tree = interface.accessibility_tree(&window.renderer);
                                 window.scale_accessibility_tree(&mut tree);
                                 window.update_accessibility_tree(tree);
