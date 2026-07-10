@@ -356,6 +356,10 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        // Protect against State::None from parent-transition tree diffs
+        if tree.state.try_downcast_ref::<Memory>().is_none() {
+            tree.state = tree::State::new(Memory::default());
+        }
         let Memory { order, .. } = tree.state.downcast_ref();
 
         // `Pane` always increments and is iterated by Ord so new
@@ -467,6 +471,10 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        // Protect against State::None from parent-transition tree diffs
+        if tree.state.try_downcast_ref::<Memory>().is_none() {
+            tree.state = tree::State::new(Memory::default());
+        }
         let Memory { action, .. } = tree.state.downcast_mut();
         let node = self.internal.layout();
 
@@ -670,7 +678,9 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let Memory { action, .. } = tree.state.downcast_ref();
+        let Some(Memory { action, .. }) = tree.state.try_downcast_ref() else {
+            return mouse::Interaction::default();
+        };
 
         if let Some(grid_interaction) = self.grid_interaction(action, layout, cursor) {
             return grid_interaction;
@@ -711,7 +721,9 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let Memory { action, .. } = tree.state.downcast_ref();
+        let Some(Memory { action, .. }) = tree.state.try_downcast_ref() else {
+            return;
+        };
         let node = self.internal.layout();
         let resize_leeway = self.on_resize.as_ref().map(|(leeway, _)| *leeway);
 

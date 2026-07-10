@@ -371,6 +371,42 @@ impl State {
             State::Some(state) => state.downcast_mut().expect("Downcast widget state"),
         }
     }
+
+    /// Tries to downcast the [`State`] to `T`, returning `None` if the state is `State::None`.
+    pub fn try_downcast_ref<T>(&self) -> Option<&T>
+    where
+        T: 'static,
+    {
+        match self {
+            State::None => None,
+            State::Some(state) => state.downcast_ref(),
+        }
+    }
+
+    /// Tries to downcast the [`State`] to `T` mutably, returning `None` if the state is `State::None`.
+    pub fn try_downcast_mut<T>(&mut self) -> Option<&mut T>
+    where
+        T: 'static,
+    {
+        match self {
+            State::None => None,
+            State::Some(state) => state.downcast_mut(),
+        }
+    }
+
+    /// Downcasts the [`State`] to `T`, initializing it with a default if it is `State::None`.
+    ///
+    /// If the existing state is `State::Some` but the type doesn't match,
+    /// this will still panic — the [`Tree`] diff mechanism should ensure types match.
+    pub fn downcast_or_init<T>(&mut self, default: impl FnOnce() -> T) -> &mut T
+    where
+        T: 'static,
+    {
+        if matches!(self, State::None) {
+            *self = State::new(default());
+        }
+        self.downcast_mut()
+    }
 }
 
 impl fmt::Debug for State {
