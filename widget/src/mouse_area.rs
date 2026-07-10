@@ -294,12 +294,10 @@ where
         let child_layout = layout.children().next()?;
         let child_tree = tree.children.first()?;
 
-        let child_id = self.content.as_widget().accessibility(
-            child_layout,
-            child_tree,
-            nodes,
-            id_counter,
-        );
+        let child_id =
+            self.content
+                .as_widget()
+                .accessibility(child_layout, child_tree, nodes, id_counter);
 
         let id = accesskit::NodeId(*id_counter);
         tree.set_accesskit_node_id(id);
