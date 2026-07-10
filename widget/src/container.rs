@@ -223,7 +223,7 @@ where
         if self.focusable {
             crate::focus_ring::FocusState::tag()
         } else {
-            self.content.as_widget().tag()
+            tree::Tag::stateless()
         }
     }
 
@@ -231,7 +231,7 @@ where
         if self.focusable {
             crate::focus_ring::FocusState::state()
         } else {
-            self.content.as_widget().state()
+            tree::State::None
         }
     }
 
@@ -464,7 +464,7 @@ where
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(
-            tree,
+            &mut tree.children[0],
             layout.children().next().unwrap(),
             renderer,
             viewport,
