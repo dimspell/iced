@@ -301,13 +301,18 @@ where
         nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
         id_counter: &mut u64,
     ) -> Option<accesskit::NodeId> {
-        // Forward child accessibility first
-        let child_id = self.content.as_widget().accessibility(
-            layout.children().next().unwrap(),
-            &tree.children[0],
-            nodes,
-            id_counter,
-        );
+        // Forward child accessibility first. The layout tree may be
+        // temporarily desynced from the widget tree (e.g. during a rapid view
+        // rebuild); guard against a missing child layout/tree instead of
+        // panicking so a transient mismatch never aborts the whole app.
+        let child_layouts: Vec<_> = layout.children().collect();
+        let child_id = match (child_layouts.into_iter().next(), tree.children.first()) {
+            (Some(child_layout), Some(child_tree)) => self
+                .content
+                .as_widget()
+                .accessibility(child_layout, child_tree, nodes, id_counter),
+            _ => None,
+        };
 
         let id = accesskit::NodeId(*id_counter);
         tree.set_accesskit_node_id(id);
