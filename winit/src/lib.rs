@@ -1067,7 +1067,44 @@ async fn run_instance<P>(
                             actions = 0;
                         }
 
-                        if events.is_empty() && messages.is_empty() && window_manager.is_idle() {
+                        // On Windows, a `Resized` event or its `RedrawRequested`
+                        // counterpart can be missed during a resize/fullscreen
+                        // transition (e.g. a `WM_PAINT` pending while the event
+                        // loop sleeps is never dispatched). Reconcile the window
+                        // state with the real size and force a redraw so the
+                        // layout and surface are rebuilt with the correct size.
+                        let mut force_redraw = false;
+
+                        for (_id, window) in window_manager.iter_mut() {
+                            let actual_size = window.raw.inner_size();
+                            let expected_size = window.state.physical_size();
+
+                            if actual_size.width != expected_size.width
+                                || actual_size.height != expected_size.height
+                            {
+                                window.state.update(
+                                    &program,
+                                    &window.raw,
+                                    &winit::event::WindowEvent::Resized(actual_size),
+                                );
+
+                                force_redraw = true;
+                            }
+
+                            // The state changed (e.g. a `Resized` was processed)
+                            // but no relayout happened yet. Make sure a
+                            // `RedrawRequested` is on the way so the gate at
+                            // `RedrawRequested` can relayout and reconfigure.
+                            if window.surface_version != window.state.surface_version() {
+                                force_redraw = true;
+                            }
+                        }
+
+                        if events.is_empty()
+                            && messages.is_empty()
+                            && window_manager.is_idle()
+                            && !force_redraw
+                        {
                             continue;
                         }
 
@@ -1138,6 +1175,16 @@ async fn run_instance<P>(
                             }
 
                             interact_span.finish();
+                        }
+
+                        // The relayout inside `RedrawRequested` only runs when a
+                        // `RedrawRequested` is actually delivered. If a resize was
+                        // missed (or its redraw never dispatched), force one so the
+                        // layout and surface are rebuilt with the reconciled size.
+                        if force_redraw {
+                            for (_id, window) in window_manager.iter_mut() {
+                                window.raw.request_redraw();
+                            }
                         }
 
                         for (id, event) in events.drain(..) {
