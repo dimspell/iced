@@ -66,6 +66,12 @@ where
     data: &'a Data,
     cell_size: f32,
     class: Theme::Class<'a>,
+    /// The accessible label for this QR code, exposed to screen readers.
+    accessible_label: String,
+    /// Additional accessible description for this QR code.
+    accessible_description: Option<String>,
+    /// The original data encoded in this QR code, exposed to screen readers.
+    encoded_value: Option<String>,
 }
 
 impl<'a, Theme> QRCode<'a, Theme>
@@ -78,6 +84,9 @@ where
             data,
             cell_size: DEFAULT_CELL_SIZE,
             class: Theme::default(),
+            accessible_label: String::from("QR Code"),
+            accessible_description: None,
+            encoded_value: None,
         }
     }
 
@@ -109,6 +118,32 @@ where
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    /// Sets the accessible label for this QR code.
+    ///
+    /// Defaults to "QR Code" if not set. Provide a more descriptive label
+    /// such as "QR Code for Example Website" to help screen reader users
+    /// understand what the QR code represents.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = label.into();
+        self
+    }
+
+    /// Sets an accessible description for this QR code.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the encoded data value, exposed to screen readers so AT users
+    /// can extract the information from the QR code.
+    ///
+    /// This should be set to the original data string (e.g., a URL or contact
+    /// information) that the QR code encodes.
+    pub fn encoded_value(mut self, value: impl Into<String>) -> Self {
+        self.encoded_value = Some(value.into());
         self
     }
 }
@@ -205,6 +240,34 @@ where
 
             renderer.draw_geometry(geometry);
         });
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            Some(self.accessible_label.as_str()),
+            self.accessible_description.as_deref(),
+            self.encoded_value.as_deref(),
+        );
+
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

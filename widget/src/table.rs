@@ -44,7 +44,20 @@ where
         width: Length::Shrink,
         align_x: alignment::Horizontal::Left,
         align_y: alignment::Vertical::Top,
+        row_header: false,
+        sort_direction: None,
     }
+}
+
+/// The direction used to sort a table column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    /// Values are sorted in ascending order.
+    Ascending,
+    /// Values are sorted in descending order.
+    Descending,
+    /// Values use an application-defined ordering.
+    Other,
 }
 
 /// A grid-like visual representation of data distributed in columns and rows.
@@ -60,6 +73,10 @@ where
     padding_y: f32,
     separator_x: f32,
     separator_y: f32,
+    accessible_label: Option<String>,
+    selected_rows: Option<Vec<usize>>,
+    selected_cells: Option<Vec<(usize, usize)>>,
+    selected_columns: Option<Vec<usize>>,
     class: Theme::Class<'a>,
 }
 
@@ -67,6 +84,10 @@ struct Column_ {
     width: Length,
     align_x: alignment::Horizontal,
     align_y: alignment::Vertical,
+    #[cfg_attr(not(feature = "accessibility"), allow(dead_code))]
+    row_header: bool,
+    #[cfg_attr(not(feature = "accessibility"), allow(dead_code))]
+    sort_direction: Option<SortDirection>,
 }
 
 impl<'a, Message, Theme, Renderer> Table<'a, Message, Theme, Renderer>
@@ -102,6 +123,8 @@ where
                         width: column.width,
                         align_x: column.align_x,
                         align_y: column.align_y,
+                        row_header: column.row_header,
+                        sort_direction: column.sort_direction,
                     },
                     column.view,
                 )
@@ -130,6 +153,10 @@ where
             padding_y: 5.0,
             separator_x: 1.0,
             separator_y: 1.0,
+            accessible_label: None,
+            selected_rows: None,
+            selected_cells: None,
+            selected_columns: None,
             class: Theme::default(),
         }
     }
@@ -175,6 +202,37 @@ where
     /// Sets the thickness of the vertical line separator between the cells of the [`Table`].
     pub fn separator_y(mut self, separator: impl Into<Pixels>) -> Self {
         self.separator_y = separator.into().0;
+        self
+    }
+
+    /// Sets the accessible label of the [`Table`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Marks data rows as selectable and identifies the selected rows.
+    ///
+    /// Row indices are zero-based and do not include the header row.
+    pub fn selected_rows(mut self, rows: impl IntoIterator<Item = usize>) -> Self {
+        self.selected_rows = Some(rows.into_iter().collect());
+        self
+    }
+
+    /// Marks data cells as selectable and identifies the selected cells.
+    ///
+    /// Each `(row, column)` index is zero-based and row indices do not include
+    /// the header row.
+    pub fn selected_cells(mut self, cells: impl IntoIterator<Item = (usize, usize)>) -> Self {
+        self.selected_cells = Some(cells.into_iter().collect());
+        self
+    }
+
+    /// Marks columns as selectable and identifies the selected columns.
+    ///
+    /// Column indices are zero-based.
+    pub fn selected_columns(mut self, columns: impl IntoIterator<Item = usize>) -> Self {
+        self.selected_columns = Some(columns.into_iter().collect());
         self
     }
 }
@@ -587,6 +645,217 @@ where
             translation,
         )
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use accesskit::Role;
+
+        let columns = self.columns.len();
+        let grid_rows = if columns > 0 {
+            self.cells.len() / columns
+        } else {
+            0
+        };
+        let rows = grid_rows.saturating_sub(1);
+
+        let mut header_ids: Vec<accesskit::NodeId> = Vec::new();
+        let mut header_bounds: Option<crate::core::Rectangle> = None;
+
+        // Get child node IDs, grouping data cells by row. Headers are kept
+        // separate because native table APIs do not count them as data rows.
+        let mut row_cell_ids: Vec<Vec<accesskit::NodeId>> = Vec::new();
+        let mut row_bounds: Vec<Option<crate::core::Rectangle>> = Vec::new();
+
+        for (i, (cell, child_tree)) in self.cells.iter().zip(tree.children.iter()).enumerate() {
+            let col = i % columns;
+            let row = i / columns;
+
+            let is_header = row == 0;
+            let data_row = row.saturating_sub(1);
+
+            if !is_header && col == 0 {
+                row_cell_ids.push(Vec::new());
+                row_bounds.push(None);
+            }
+
+            let cell_layout = layout.children().nth(i);
+            if let Some(cell_layout) = cell_layout {
+                if let Some(cell_id) =
+                    cell.as_widget()
+                        .accessibility(cell_layout, child_tree, nodes, id_counter)
+                {
+                    // Wrap the content in a semantic header or data cell.
+                    let wrapper_id = accesskit::NodeId(*id_counter);
+                    *id_counter += 1;
+
+                    let mut wrapper = accesskit::Node::new(if is_header {
+                        Role::ColumnHeader
+                    } else if self.columns[col].row_header {
+                        Role::RowHeader
+                    } else {
+                        Role::Cell
+                    });
+                    wrapper.push_child(cell_id);
+                    let cell_bounds = nodes
+                        .iter()
+                        .find(|(id, _)| *id == cell_id)
+                        .and_then(|(_, child)| child.bounds())
+                        .map(crate::core::accessibility::from_rect)
+                        .unwrap_or_else(|| cell_layout.bounds());
+                    let cell_bounds = crate::core::accessibility::non_empty(cell_bounds);
+
+                    if let Some((_, child)) = nodes.iter().find(|(id, _)| *id == cell_id) {
+                        if let Some(label) = child.label().or_else(|| child.value()) {
+                            wrapper.set_label(label);
+                        }
+                    }
+                    wrapper.set_bounds(crate::core::accessibility::rect(cell_bounds));
+                    wrapper.set_column_index(col);
+                    wrapper.set_row_span(1);
+                    wrapper.set_column_span(1);
+                    if is_header {
+                        if let Some(sort_direction) = self.columns[col].sort_direction {
+                            wrapper.set_sort_direction(match sort_direction {
+                                SortDirection::Ascending => accesskit::SortDirection::Ascending,
+                                SortDirection::Descending => accesskit::SortDirection::Descending,
+                                SortDirection::Other => accesskit::SortDirection::Other,
+                            });
+                        }
+                        if let Some(selected_columns) = &self.selected_columns {
+                            wrapper.set_selected(selected_columns.contains(&col));
+                        }
+                    } else {
+                        wrapper.set_row_index(data_row);
+                        if let Some(selected_cells) = &self.selected_cells {
+                            wrapper.set_selected(selected_cells.contains(&(data_row, col)));
+                        }
+                    }
+                    nodes.push((wrapper_id, wrapper));
+
+                    if is_header {
+                        header_ids.push(wrapper_id);
+                    } else if let Some(last_row) = row_cell_ids.last_mut() {
+                        last_row.push(wrapper_id);
+                    }
+
+                    if is_header {
+                        header_bounds = Some(header_bounds.map_or(cell_bounds, |bounds| {
+                            crate::core::accessibility::union(bounds, cell_bounds)
+                        }));
+                    } else if let Some(bounds) = row_bounds.get_mut(data_row) {
+                        *bounds = Some(bounds.map_or(cell_bounds, |row_bounds| {
+                            crate::core::accessibility::union(row_bounds, cell_bounds)
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Create Row wrapper nodes for each row
+        let mut row_ids: Vec<accesskit::NodeId> = Vec::new();
+
+        for (row, row_cells) in row_cell_ids.iter().enumerate() {
+            let row_id = accesskit::NodeId(*id_counter);
+            *id_counter += 1;
+
+            let mut row_builder = accesskit::Node::new(Role::Row);
+            if let Some(Some(bounds)) = row_bounds.get(row) {
+                crate::core::accessibility::set_bounds(tree, &mut row_builder, *bounds);
+            }
+            row_builder.set_row_index(row);
+            row_builder.set_column_index(0);
+            row_builder.set_column_span(columns);
+            if let Some(selected_rows) = &self.selected_rows {
+                row_builder.set_selected(selected_rows.contains(&row));
+            }
+
+            for cell_id in row_cells {
+                row_builder.push_child(*cell_id);
+            }
+            nodes.push((row_id, row_builder));
+            row_ids.push(row_id);
+        }
+
+        let header_group_id = (!header_ids.is_empty()).then(|| {
+            let header_group_id = accesskit::NodeId(*id_counter);
+            *id_counter += 1;
+
+            let mut header_group = accesskit::Node::new(Role::RowGroup);
+            if let Some(bounds) = header_bounds {
+                crate::core::accessibility::set_bounds(tree, &mut header_group, bounds);
+            }
+            header_group.set_children(header_ids);
+            nodes.push((header_group_id, header_group));
+
+            header_group_id
+        });
+
+        // Create the Table node
+        let table_id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut table_builder = accesskit::Node::new(Role::Table);
+        crate::core::accessibility::set_bounds(tree, &mut table_builder, layout.bounds());
+        if let Some(label) = &self.accessible_label {
+            table_builder.set_label(label.as_str());
+        }
+        if let Some(header_group_id) = header_group_id {
+            table_builder.push_child(header_group_id);
+        }
+        for row_id in &row_ids {
+            table_builder.push_child(*row_id);
+        }
+        table_builder.set_row_count(rows);
+        table_builder.set_column_count(columns);
+        if self
+            .selected_rows
+            .as_ref()
+            .is_some_and(|rows| rows.len() > 1)
+            || self
+                .selected_cells
+                .as_ref()
+                .is_some_and(|cells| cells.len() > 1)
+            || self
+                .selected_columns
+                .as_ref()
+                .is_some_and(|columns| columns.len() > 1)
+        {
+            table_builder.set_multiselectable();
+        }
+        nodes.push((table_id, table_builder));
+
+        Some(table_id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        for ((cell, child_tree), child_layout) in self
+            .cells
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+        {
+            if !child_tree.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
+            cell.as_widget_mut()
+                .accessibility_action(child_tree, child_layout, action, shell);
+            break;
+        }
+    }
 }
 
 impl<'a, Message, Theme, Renderer> From<Table<'a, Message, Theme, Renderer>>
@@ -608,6 +877,8 @@ pub struct Column<'a, 'b, T, Message, Theme = crate::Theme, Renderer = crate::Re
     width: Length,
     align_x: alignment::Horizontal,
     align_y: alignment::Vertical,
+    row_header: bool,
+    sort_direction: Option<SortDirection>,
 }
 
 impl<'a, 'b, T, Message, Theme, Renderer> Column<'a, 'b, T, Message, Theme, Renderer> {
@@ -626,6 +897,18 @@ impl<'a, 'b, T, Message, Theme, Renderer> Column<'a, 'b, T, Message, Theme, Rend
     /// Sets the alignment for the vertical axis of the [`Column`].
     pub fn align_y(mut self, alignment: impl Into<alignment::Vertical>) -> Self {
         self.align_y = alignment.into();
+        self
+    }
+
+    /// Marks the cells in this column as row headers.
+    pub fn row_header(mut self, row_header: bool) -> Self {
+        self.row_header = row_header;
+        self
+    }
+
+    /// Describes how this column is currently sorted.
+    pub fn sort_direction(mut self, direction: SortDirection) -> Self {
+        self.sort_direction = Some(direction);
         self
     }
 }

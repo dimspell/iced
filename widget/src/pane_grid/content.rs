@@ -18,6 +18,9 @@ where
     title_bar: Option<TitleBar<'a, Message, Theme, Renderer>>,
     body: Element<'a, Message, Theme, Renderer>,
     class: Theme::Class<'a>,
+    /// The accessible label for this pane, if any.
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> Content<'a, Message, Theme, Renderer>
@@ -31,6 +34,8 @@ where
             title_bar: None,
             body: body.into(),
             class: Theme::default(),
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -57,6 +62,17 @@ where
         self.class = class.into();
         self
     }
+
+    /// Sets the accessible label for this pane, enabling screen readers
+    /// to identify the pane by name.
+    ///
+    /// In a tiling-window-manager-style UI, each pane should have a
+    /// distinguishable label (e.g., "Editor", "Terminal", "File Explorer").
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
 }
 
 impl<Message, Theme, Renderer> Content<'_, Message, Theme, Renderer>
@@ -64,6 +80,75 @@ where
     Theme: container::Catalog,
     Renderer: core::Renderer,
 {
+    #[cfg(feature = "accessibility")]
+    pub(super) fn accessibility(
+        &self,
+        layout: Layout<'_>,
+        tree: &Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        // Body is always at tree.children[0]
+        let body_layout = if self.title_bar.is_some() {
+            layout.children().nth(1)
+        } else {
+            Some(layout)
+        };
+
+        let body_id = body_layout.and_then(|body_layout| {
+            self.body
+                .as_widget()
+                .accessibility(body_layout, &tree.children[0], nodes, id_counter)
+        })?;
+
+        // If a pane label is set, wrap the body in a labeled container
+        // so screen readers can identify individual panes by name.
+        if let Some(label) = &self.accessible_label {
+            let id = accesskit::NodeId(*id_counter);
+            *id_counter += 1;
+
+            let mut builder = accesskit::Node::new(accesskit::Role::GenericContainer);
+            builder.push_child(body_id);
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+            builder.set_label(label.as_str());
+            nodes.push((id, builder));
+
+            Some(id)
+        } else {
+            Some(body_id)
+        }
+    }
+
+    #[cfg(feature = "accessibility")]
+    pub(super) fn accessibility_action(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let body_layout = if self.title_bar.is_some() {
+            layout.children().nth(1)
+        } else {
+            Some(layout)
+        };
+
+        if let Some(body_layout) = body_layout {
+            if !tree.children[0].contains_accesskit_node_id(action.target_node) {
+                return;
+            }
+
+            self.body.as_widget_mut().accessibility_action(
+                &mut tree.children[0],
+                body_layout,
+                action,
+                shell,
+            );
+        }
+    }
+
     pub(super) fn state(&self) -> Tree {
         let children = if let Some(title_bar) = self.title_bar.as_ref() {
             vec![Tree::new(&self.body), title_bar.state()]

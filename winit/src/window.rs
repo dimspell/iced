@@ -4,6 +4,9 @@ use state::State;
 
 pub use crate::core::window::{Event, Id, RedrawRequest, Settings};
 
+#[cfg(feature = "accessibility")]
+use accesskit_winit;
+
 use crate::Proxy;
 use crate::conversion;
 use crate::core;
@@ -89,6 +92,10 @@ where
                 redraw_at: None,
                 preedit: None,
                 ime_state: None,
+                #[cfg(feature = "accessibility")]
+                accessibility_adapter: None,
+                #[cfg(feature = "accessibility")]
+                accessibility_value_update_at: None,
             },
         );
 
@@ -186,6 +193,12 @@ where
     pub redraw_at: Option<Instant>,
     preedit: Option<Preedit<P::Renderer>>,
     ime_state: Option<(Rectangle, input_method::Purpose)>,
+
+    #[cfg(feature = "accessibility")]
+    pub accessibility_adapter: Option<accesskit_winit::Adapter>,
+
+    #[cfg(feature = "accessibility")]
+    accessibility_value_update_at: Option<Instant>,
 }
 
 impl<P, C> Window<P, C>
@@ -302,6 +315,99 @@ where
         }
 
         self.preedit = None;
+    }
+
+    /// Converts logical accessibility coordinates to physical pixels.
+    #[cfg(feature = "accessibility")]
+    pub fn scale_accessibility_tree(
+        &self,
+        tree_update: &mut crate::core::accessibility::accesskit::TreeUpdate,
+    ) {
+        scale_accessibility_tree(tree_update, self.state.scale_factor());
+    }
+
+    /// Delays numeric value tree updates until assistive-technology input is idle.
+    #[cfg(feature = "accessibility")]
+    pub fn debounce_accessibility_value_update(&mut self, value_action_received: bool) -> bool {
+        const DEBOUNCE: core::time::Duration = core::time::Duration::from_millis(150);
+
+        let now = Instant::now();
+
+        if value_action_received {
+            let deadline = now + DEBOUNCE;
+            self.accessibility_value_update_at = Some(deadline);
+            self.request_redraw(RedrawRequest::At(deadline));
+            return false;
+        }
+
+        if let Some(deadline) = self.accessibility_value_update_at {
+            if now < deadline {
+                self.request_redraw(RedrawRequest::At(deadline));
+                return false;
+            }
+
+            self.accessibility_value_update_at = None;
+        }
+
+        true
+    }
+
+    /// Updates the accessibility tree if an assistive technology is active.
+    #[cfg(feature = "accessibility")]
+    pub fn update_accessibility_tree(
+        &mut self,
+        tree_update: crate::core::accessibility::accesskit::TreeUpdate,
+    ) {
+        if let Some(adapter) = &mut self.accessibility_adapter {
+            adapter.update_if_active(move || tree_update);
+        }
+    }
+}
+
+#[cfg(feature = "accessibility")]
+fn scale_accessibility_tree(
+    tree_update: &mut crate::core::accessibility::accesskit::TreeUpdate,
+    scale_factor: f32,
+) {
+    use crate::core::accessibility::accesskit::Affine;
+
+    let Some(root_id) = tree_update.tree.as_ref().map(|tree| tree.root) else {
+        return;
+    };
+    let Some((_, root)) = tree_update.nodes.iter_mut().find(|(id, _)| *id == root_id) else {
+        return;
+    };
+
+    let logical_transform = root.transform().copied().unwrap_or(Affine::IDENTITY);
+    root.set_transform(Affine::scale(scale_factor as f64) * logical_transform);
+}
+
+#[cfg(all(test, feature = "accessibility"))]
+mod accessibility_tests {
+    use super::scale_accessibility_tree;
+    use crate::core::accessibility::accesskit::{
+        Affine, Node, NodeId, Role, Tree, TreeId, TreeUpdate,
+    };
+
+    #[test]
+    fn accessibility_root_transform_uses_physical_scale_factor() {
+        let root_id = NodeId(1);
+        let mut root = Node::new(Role::Window);
+        root.set_transform(Affine::translate((10.0, 20.0)));
+        let mut update = TreeUpdate {
+            nodes: vec![(root_id, root)],
+            tree: Some(Tree::new(root_id)),
+            tree_id: TreeId::ROOT,
+            focus: root_id,
+        };
+
+        scale_accessibility_tree(&mut update, 1.5);
+
+        let transform = update.nodes[0].1.transform().copied().unwrap();
+        assert_eq!(
+            transform,
+            Affine::scale(1.5) * Affine::translate((10.0, 20.0))
+        );
     }
 }
 

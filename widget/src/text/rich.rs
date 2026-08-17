@@ -32,6 +32,7 @@ where
     class: Theme::Class<'a>,
     hovered_link: Option<usize>,
     on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
+    heading_level: Option<usize>,
 }
 
 impl<'a, Link, Message, Theme, Renderer> Rich<'a, Link, Message, Theme, Renderer>
@@ -57,6 +58,7 @@ where
             class: Theme::default(),
             hovered_link: None,
             on_link_click: None,
+            heading_level: None,
         }
     }
 
@@ -77,6 +79,21 @@ where
     /// Sets the default [`LineHeight`] of the [`Rich`] text.
     pub fn line_height(mut self, line_height: impl Into<LineHeight>) -> Self {
         self.line_height = line_height.into();
+        self
+    }
+
+    /// Marks the [`Rich`] text as a heading with the given level.
+    ///
+    /// This will set the accessibility role to `Heading` with the specified
+    /// level (1-6), which helps screen reader users navigate the document
+    /// structure.
+    ///
+    /// # Example
+    /// ```ignore
+    /// rich_text(spans).heading(1)
+    /// ```
+    pub fn heading(mut self, level: usize) -> Self {
+        self.heading_level = Some(level);
         self
     }
 
@@ -433,6 +450,31 @@ where
         } else {
             mouse::Interaction::None
         }
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let builder = if let Some(level) = self.heading_level {
+            let mut node = accesskit::Node::new(accesskit::Role::Heading);
+            node.set_level(level);
+            node
+        } else {
+            accesskit::Node::new(accesskit::Role::Paragraph)
+        };
+
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

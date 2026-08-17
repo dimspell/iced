@@ -1,4 +1,73 @@
 //! Use the built-in widgets or create your own.
+//!
+//! # Accessibility
+//!
+//! Iced has built-in support for assistive technologies (screen readers,
+//! switch control, etc.) via the [AccessKit] library. All built-in widgets
+//! expose their role, label, value, and available actions through the
+//! accessibility tree, which is delivered to the platform accessibility API
+//! each frame.
+//!
+//! ## Enabling accessibility
+//!
+//! Accessibility support is feature-gated behind the `accessibility` feature:
+//!
+//! ```toml
+//! iced = { features = ["accessibility"] }
+//! ```
+//!
+//! ## Adding accessibility to custom widgets
+//!
+//! To make a custom widget accessible, implement the [`accessibility`] method
+//! on the [`Widget`] trait. The method receives the layout, widget tree, and a
+//! mutable node buffer, and returns an optional [`NodeId`].
+//!
+//! ```ignore
+//! #[cfg(feature = "accessibility")]
+//! fn accessibility(
+//!     &self,
+//!     _layout: Layout<'_>,
+//!     tree: &widget::Tree,
+//!     nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+//!     id_counter: &mut u64,
+//! ) -> Option<accesskit::NodeId> {
+//!     let id = accesskit::NodeId(*id_counter);
+//!     tree.set_accesskit_node_id(id);
+//!     *id_counter += 1;
+//!
+//!     let mut node = accesskit::Node::new(accesskit::Role::Button);
+//!     node.set_label("Click me");
+//!     node.add_action(accesskit::Action::Click);
+//!     nodes.push((id, node));
+//!     Some(id)
+//! }
+//! ```
+//!
+//! You can also handle screen reader actions by implementing
+//! [`accessibility_action`] on the [`Widget`] trait.
+//!
+//! ```ignore
+//! #[cfg(feature = "accessibility")]
+//! fn accessibility_action(
+//!     &mut self,
+//!     _tree: &mut widget::Tree,
+//!     _layout: Layout<'_>,
+//!     action: &accesskit::ActionRequest,
+//!     shell: &mut Shell<'_, Message>,
+//! ) {
+//!     if action.action == accesskit::Action::Click {
+//!         shell.publish(self.on_press.clone());
+//!     }
+//! }
+//! ```
+//!
+//! See the documentation of the [`Widget`] trait for details.
+//!
+//! [AccessKit]: https://accesskit.dev/
+//! [`accessibility`]: crate::core::Widget::accessibility
+//! [`accessibility_action`]: crate::core::Widget::accessibility_action
+//! [`Widget`]: crate::core::Widget
+//! [`NodeId`]: accesskit::NodeId
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/iced-rs/iced/9ab6923e943f784985e9ef9ca28b10278297225d/docs/logo.svg"
 )]
@@ -22,6 +91,7 @@ pub mod checkbox;
 pub mod combo_box;
 pub mod container;
 pub mod float;
+pub mod focus_ring;
 pub mod grid;
 pub mod keyed;
 pub mod overlay;

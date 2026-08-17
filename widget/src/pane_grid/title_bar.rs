@@ -555,7 +555,21 @@ where
                         > padded.bounds().width
                     {
                         if let Some(compact) = controls.compact.as_mut() {
-                            let compact_state = states.next().unwrap();
+                            let compact_state = match states.next() {
+                                Some(state) => state,
+                                None => {
+                                    // Fall back to full controls if no compact state
+                                    // (avoids panic when pane_grid overlay is called
+                                    // before full state initialization)
+                                    return controls.full.as_widget_mut().overlay(
+                                        controls_state,
+                                        controls_layout,
+                                        renderer,
+                                        viewport,
+                                        translation,
+                                    );
+                                }
+                            };
                             let compact_layout = children.next()?;
 
                             compact.as_widget_mut().overlay(

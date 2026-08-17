@@ -1,0 +1,472 @@
+//! An example showcasing accessibility labels and properties across all
+//! accessible Iced widgets.
+//!
+//! This example demonstrates how to provide accessible labels, tooltip
+//! notifications, table roles, pane labels, and other properties that screen
+//! readers and assistive technologies rely on.
+//!
+//! Run it with:
+//! ```bash
+//! cargo run -p accessibility
+//! ```
+use iced::widget::pane_grid;
+use iced::widget::{
+    button, checkbox, column, combo_box, container, pane_grid as pg, pick_list, progress_bar,
+    qr_code, radio, row, scrollable, slider, table, text, text_editor, text_input, toggler,
+    tooltip, vertical_slider,
+};
+use iced::{Center, Element, Fill, Length};
+
+/// Runs the accessibility demo application.
+pub fn main() -> iced::Result {
+    iced::application(App::new, App::update, App::view)
+        .title("Accessibility Demo")
+        .run()
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    CheckboxToggled(bool),
+    TogglerToggled(bool),
+    RadioSelected(i32),
+    SliderChanged(u8),
+    VSliderChanged(i32),
+    TextInputChanged(String),
+    TextEditorAction(text_editor::Action),
+    PickListSelected(String),
+    ComboBoxSelected(String),
+    CounterIncrement,
+    CounterDecrement,
+}
+
+struct Person {
+    name: String,
+    age: u8,
+    occupation: String,
+    location: String,
+}
+
+struct App {
+    checkbox: bool,
+    toggler: bool,
+    radio: i32,
+    slider: u8,
+    vslider: i32,
+    text_input: String,
+    editor_content: text_editor::Content,
+    pick_list_selected: Option<String>,
+    combo_box_state: combo_box::State<String>,
+    combo_box_selected: Option<String>,
+    counter: i64,
+    panes: pane_grid::State<u32>,
+    people: Vec<Person>,
+    qr_data: Option<qr_code::Data>,
+}
+
+impl App {
+    fn new() -> Self {
+        let (panes, _) = pane_grid::State::new(0);
+        Self {
+            checkbox: false,
+            toggler: false,
+            radio: 0,
+            slider: 50,
+            vslider: 0,
+            text_input: String::new(),
+            editor_content: text_editor::Content::new(),
+            pick_list_selected: Some("Cat".into()),
+            combo_box_state: combo_box::State::new(vec![
+                "Option A".to_string(),
+                "Option B".to_string(),
+                "Option C".to_string(),
+            ]),
+            combo_box_selected: None,
+            counter: 0,
+            panes,
+            people: vec![
+                Person {
+                    name: "Alice".into(),
+                    age: 29,
+                    occupation: "Designer".into(),
+                    location: "London".into(),
+                },
+                Person {
+                    name: "Bob".into(),
+                    age: 34,
+                    occupation: "Engineer".into(),
+                    location: "Berlin".into(),
+                },
+                Person {
+                    name: "Charlie".into(),
+                    age: 41,
+                    occupation: "Teacher".into(),
+                    location: "Toronto".into(),
+                },
+                Person {
+                    name: "Diana".into(),
+                    age: 26,
+                    occupation: "Writer".into(),
+                    location: "Lisbon".into(),
+                },
+                Person {
+                    name: "Ethan".into(),
+                    age: 38,
+                    occupation: "Architect".into(),
+                    location: "Chicago".into(),
+                },
+                Person {
+                    name: "Fatima".into(),
+                    age: 31,
+                    occupation: "Doctor".into(),
+                    location: "Cairo".into(),
+                },
+                Person {
+                    name: "Gabriel".into(),
+                    age: 45,
+                    occupation: "Chef".into(),
+                    location: "São Paulo".into(),
+                },
+                Person {
+                    name: "Hana".into(),
+                    age: 23,
+                    occupation: "Student".into(),
+                    location: "Seoul".into(),
+                },
+            ],
+            qr_data: qr_code::Data::new("https://iced.rs").ok(),
+        }
+    }
+
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::CheckboxToggled(v) => self.checkbox = v,
+            Message::TogglerToggled(v) => self.toggler = v,
+            Message::RadioSelected(v) => self.radio = v,
+            Message::SliderChanged(v) => self.slider = v,
+            Message::VSliderChanged(v) => self.vslider = v,
+            Message::TextInputChanged(v) => self.text_input = v,
+            Message::TextEditorAction(action) => {
+                self.editor_content.perform(action);
+            }
+            Message::PickListSelected(v) => self.pick_list_selected = Some(v),
+            Message::ComboBoxSelected(v) => self.combo_box_selected = Some(v),
+            Message::CounterIncrement => self.counter += 1,
+            Message::CounterDecrement => self.counter -= 1,
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let content = column![
+            self.heading_section(),
+            self.interactive_section(),
+            self.slider_section(),
+            self.input_section(),
+            self.selection_section(),
+            self.data_section(),
+            self.layout_section(),
+        ]
+        .spacing(24)
+        .padding(20)
+        .accessible_label("Accessibility demo content");
+
+        scrollable(content).height(Fill).into()
+    }
+
+    fn heading_section(&self) -> Element<'_, Message> {
+        column![
+            text("Accessibility Demo").heading(1).size(32),
+            text(
+                "This application demonstrates accessible labels \
+                 and properties across Iced widgets."
+            )
+            .heading(3),
+            text("Use a screen reader to explore the labeled controls below."),
+        ]
+        .spacing(8)
+        .into()
+    }
+
+    fn interactive_section(&self) -> Element<'_, Message> {
+        column![
+            text("Interactive Controls").heading(2),
+            row![
+                tooltip(
+                    button("Increment").on_press(Message::CounterIncrement),
+                    text("Adds 1 to the counter"),
+                    tooltip::Position::Top,
+                ),
+                tooltip(
+                    button("Decrement").on_press(Message::CounterDecrement),
+                    text("Subtracts 1 from the counter"),
+                    tooltip::Position::Top,
+                ),
+                container(text(self.counter).size(24))
+                    .accessible_label(format!("Counter value {}", self.counter)),
+            ]
+            .spacing(10)
+            .align_y(Center),
+            row![
+                checkbox(self.checkbox)
+                    .label("Enable notifications")
+                    .on_toggle(Message::CheckboxToggled),
+                toggler(self.toggler)
+                    .label("Dark mode")
+                    .on_toggle(Message::TogglerToggled),
+            ]
+            .spacing(20)
+            .align_y(Center),
+            row![
+                radio("Option A", 0, Some(self.radio), Message::RadioSelected),
+                radio("Option B", 1, Some(self.radio), Message::RadioSelected),
+                radio("Option C", 2, Some(self.radio), Message::RadioSelected),
+            ]
+            .spacing(16)
+            .accessible_label("Radio options"),
+        ]
+        .spacing(12)
+        .accessible_label("Interactive controls")
+        .into()
+    }
+
+    fn slider_section(&self) -> Element<'_, Message> {
+        column![
+            text("Sliders").heading(2),
+            slider(0..=100, self.slider, Message::SliderChanged).accessible_label("Volume"),
+            vertical_slider(0..=100, self.vslider, Message::VSliderChanged)
+                .height(160)
+                .accessible_label("Brightness"),
+        ]
+        .spacing(12)
+        .width(Length::FillPortion(2))
+        .accessible_label("Slider controls")
+        .into()
+    }
+
+    fn input_section(&self) -> Element<'_, Message> {
+        column![
+            text("Text & Progress").heading(2),
+            text_input("Type here...", &self.text_input)
+                .on_input(Message::TextInputChanged)
+                .accessible_label("Search query"),
+            progress_bar(0.0..=100.0, self.slider as f32).accessible_label("Volume progress"),
+            text_editor(&self.editor_content)
+                .on_action(Message::TextEditorAction)
+                .height(100)
+                .accessible_label("Editor content"),
+        ]
+        .spacing(12)
+        .accessible_label("Text and progress controls")
+        .into()
+    }
+
+    fn selection_section(&self) -> Element<'_, Message> {
+        const PETS: &[&str] = &["Cat", "Dog", "Bird", "Fish"];
+
+        column![
+            text("Selection Controls").heading(2),
+            row![
+                pick_list(self.pick_list_selected.as_deref(), PETS, |s: &&str| s
+                    .to_string(),)
+                .on_select(|s: &str| Message::PickListSelected(s.to_string()))
+                .accessible_label("Favorite pet"),
+                combo_box(
+                    &self.combo_box_state,
+                    "Type a value...",
+                    self.combo_box_selected.as_ref(),
+                    Message::ComboBoxSelected,
+                )
+                .accessible_label("Custom value"),
+            ]
+            .spacing(16)
+            .align_y(Center),
+        ]
+        .spacing(12)
+        .accessible_label("Selection controls")
+        .into()
+    }
+
+    fn data_section(&self) -> Element<'_, Message> {
+        column![
+            text("Data Widgets").heading(2),
+            row![
+                column![
+                    text("QR Code"),
+                    match &self.qr_data {
+                        Some(data) => {
+                            let qr: Element<'_, Message> = iced::widget::qr_code(data)
+                                .accessible_label("QR Code for Iced website")
+                                .encoded_value("https://iced.rs")
+                                .into();
+                            qr
+                        }
+                        None => text("(QR generation failed)").into(),
+                    },
+                ]
+                .spacing(4),
+            ]
+            .spacing(20),
+            table::table(
+                [
+                    table::column(text("Name"), |person: &Person| text(&person.name))
+                        .row_header(true),
+                    table::column(text("Age"), |person: &Person| text(person.age))
+                        .sort_direction(table::SortDirection::Ascending),
+                    table::column(text("Occupation"), |person: &Person| {
+                        text(&person.occupation)
+                    }),
+                    table::column(text("Location"), |person: &Person| {
+                        text(&person.location)
+                    }),
+                ],
+                &self.people[..],
+            )
+            .accessible_label("People table"),
+        ]
+        .spacing(12)
+        .accessible_label("Data widgets")
+        .into()
+    }
+
+    fn layout_section(&self) -> Element<'_, Message> {
+        let pane_grid = pg::PaneGrid::new(&self.panes, |_id, _pane, _maximized| {
+            let body: Element<'_, Message> =
+                container(text("Pane with accessible label").heading(3))
+                    .center_x(Fill)
+                    .center_y(Fill)
+                    .into();
+
+            pg::Content::new(body).accessible_label("Accessible Pane")
+        })
+        .width(Fill)
+        .height(Length::Fixed(200.0));
+
+        column![text("Layout Widgets").heading(2), pane_grid,]
+            .spacing(12)
+            .accessible_label("Layout widgets")
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use accesskit::Role;
+    use iced_test::simulator;
+
+    #[test]
+    fn buttons_dispatch_messages() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let buttons: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Button)
+            .collect();
+        // There are at least 2 buttons (Increment, Decrement)
+        assert!(buttons.len() >= 2);
+        assert!(buttons[0].1.supports_action(accesskit::Action::Click));
+    }
+
+    #[test]
+    fn sliders_have_accessible_labels() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let sliders: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Slider)
+            .collect();
+        assert_eq!(sliders.len(), 2, "Should have horizontal + vertical slider");
+        assert_eq!(sliders[0].1.label(), Some("Volume"));
+    }
+
+    #[test]
+    fn sliders_support_increment_decrement_actions() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let sliders: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Slider)
+            .collect();
+        assert_eq!(sliders.len(), 2, "Should have horizontal + vertical slider");
+        assert!(sliders[0].1.supports_action(accesskit::Action::Increment));
+        assert!(sliders[0].1.supports_action(accesskit::Action::Decrement));
+        assert!(sliders[0].1.supports_action(accesskit::Action::SetValue));
+    }
+
+    #[test]
+    fn table_exists_with_header_and_rows() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let table_node = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role() == Role::Table)
+            .map(|(_, n)| n);
+        assert!(table_node.is_some(), "Table node should exist");
+        let table_node = table_node.unwrap();
+        assert_eq!(table_node.row_count(), Some(8));
+        assert_eq!(table_node.column_count(), Some(4));
+
+        let headers: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::ColumnHeader)
+            .map(|(_, node)| (node.label(), node.column_index()))
+            .collect();
+        assert_eq!(
+            headers,
+            vec![
+                (Some("Name"), Some(0)),
+                (Some("Age"), Some(1)),
+                (Some("Occupation"), Some(2)),
+                (Some("Location"), Some(3)),
+            ]
+        );
+
+        let row_indices: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Row)
+            .map(|(_, node)| node.row_index())
+            .collect();
+        assert_eq!(row_indices, (0..8).map(Some).collect::<Vec<_>>());
+
+        let row_headers: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.role() == Role::RowHeader)
+            .collect();
+        assert_eq!(row_headers.len(), 8);
+
+        let age_header = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.role() == Role::ColumnHeader && node.label() == Some("Age"))
+            .map(|(_, node)| node)
+            .expect("Age column header");
+        assert_eq!(
+            age_header.sort_direction(),
+            Some(accesskit::SortDirection::Ascending)
+        );
+    }
+
+    #[test]
+    fn qr_code_has_custom_label_and_value() {
+        let app = App::new();
+        let mut ui = simulator(app.view());
+        let tree = ui.accessibility_tree();
+        let qr_node = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role() == Role::Image && n.label() == Some("QR Code for Iced website"))
+            .map(|(_, n)| n);
+        assert!(qr_node.is_some(), "QR Code with custom label should exist");
+        assert_eq!(qr_node.unwrap().value(), Some("https://iced.rs"));
+    }
+}

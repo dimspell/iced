@@ -1,0 +1,17 @@
+[package]
+name = "accessibility"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+iced.workspace = true
+iced.features = ["accessibility", "image", "svg", "qr_code", "canvas"]
+accesskit.workspace = true
+
+[dev-dependencies]
+iced_test.workspace = true
+iced_test.features = ["accessibility"]
+
+[lints]
+workspace = true

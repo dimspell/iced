@@ -5,6 +5,9 @@ use crate::renderer;
 use crate::widget;
 use crate::{Event, Layout, Overlay, Shell, Size};
 
+#[cfg(feature = "accessibility")]
+use crate::accessibility::accesskit;
+
 /// An [`Overlay`] container that displays multiple overlay [`overlay::Element`]
 /// children.
 pub struct Group<'a, Message, Theme, Renderer> {
@@ -132,6 +135,55 @@ where
                     child.as_overlay_mut().operate(layout, renderer, operation);
                 });
         });
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &mut self,
+        layout: Layout<'_>,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let mut child_ids = Vec::new();
+
+        for (child, child_layout) in self.children.iter_mut().zip(layout.children()) {
+            if let Some(child_id) = child.accessibility(child_layout, nodes, id_counter) {
+                child_ids.push(child_id);
+            }
+        }
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        *id_counter += 1;
+
+        let mut node = accesskit::Node::new(accesskit::Role::Group);
+        node.set_bounds(crate::accessibility::rect(crate::accessibility::non_empty(
+            layout.bounds(),
+        )));
+        for child_id in child_ids {
+            node.push_child(child_id);
+        }
+
+        nodes.push((id, node));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        layout: Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        for (child, child_layout) in self.children.iter_mut().zip(layout.children()) {
+            child
+                .as_overlay_mut()
+                .accessibility_action(child_layout, action, shell);
+        }
     }
 
     fn overlay<'a>(

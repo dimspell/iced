@@ -61,6 +61,9 @@ where
     girth: Length,
     is_vertical: bool,
     class: Theme::Class<'a>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 impl<'a, Theme> ProgressBar<'a, Theme>
@@ -83,6 +86,9 @@ where
             girth: Length::from(Self::DEFAULT_GIRTH),
             is_vertical: false,
             class: Theme::default(),
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 
@@ -95,6 +101,27 @@ where
     /// Sets the height of the [`ProgressBar`].
     pub fn girth(mut self, girth: impl Into<Length>) -> Self {
         self.girth = girth.into();
+        self
+    }
+
+    /// Sets the accessible label for this progress bar.
+    ///
+    /// Screen readers will announce this label along with the current progress
+    /// value (e.g., "Download progress, 45%").
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description for this progress bar.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value for this progress bar.
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -224,6 +251,52 @@ where
                 style.bar,
             );
         }
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::ProgressIndicator);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+
+        // Normalize the value and format as percentage
+        let (range_start, range_end) = self.range.clone().into_inner();
+        if range_end > range_start {
+            let ratio = (self.value - range_start) / (range_end - range_start);
+            builder.set_value(
+                self.accessible_value
+                    .clone()
+                    .unwrap_or_else(|| format!("{:.0}%", ratio * 100.0)),
+            );
+            builder.set_numeric_value(ratio as f64);
+            builder.set_min_numeric_value(0.0);
+            builder.set_max_numeric_value(1.0);
+        }
+
+        // Set as live region so screen readers announce progress changes
+        builder.set_live(accesskit::Live::Polite);
+
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
+
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

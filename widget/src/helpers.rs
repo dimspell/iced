@@ -703,6 +703,49 @@ where
                 .as_widget_mut()
                 .overlay(state, layout, renderer, viewport, translation)
         }
+
+        #[cfg(feature = "accessibility")]
+        fn accessibility(
+            &self,
+            layout: crate::core::Layout<'_>,
+            tree: &crate::core::widget::Tree,
+            nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+            id_counter: &mut u64,
+        ) -> Option<accesskit::NodeId> {
+            let content_id = self
+                .content
+                .as_widget()
+                .accessibility(layout, tree, nodes, id_counter);
+
+            let id = accesskit::NodeId(*id_counter);
+            tree.set_accesskit_node_id(id);
+            *id_counter += 1;
+
+            let mut builder = accesskit::Node::new(accesskit::Role::Group);
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+            if let Some(content_id) = content_id {
+                builder.push_child(content_id);
+            }
+            nodes.push((id, builder));
+            Some(id)
+        }
+
+        #[cfg(feature = "accessibility")]
+        fn accessibility_action(
+            &mut self,
+            tree: &mut crate::core::widget::Tree,
+            layout: crate::core::Layout<'_>,
+            action: &accesskit::ActionRequest,
+            shell: &mut crate::core::Shell<'_, Message>,
+        ) {
+            if !tree.contains_accesskit_node_id(action.target_node) {
+                return;
+            }
+
+            self.content
+                .as_widget_mut()
+                .accessibility_action(tree, layout, action, shell);
+        }
     }
 
     Element::new(Opaque {
@@ -951,6 +994,74 @@ where
             self.is_top_overlay_active = top_overlay.is_some();
 
             top_overlay
+        }
+
+        #[cfg(feature = "accessibility")]
+        fn accessibility(
+            &self,
+            layout: crate::core::Layout<'_>,
+            tree: &crate::core::widget::Tree,
+            nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+            id_counter: &mut u64,
+        ) -> Option<accesskit::NodeId> {
+            use crate::core::accessibility::accesskit;
+
+            let mut child_ids = Vec::new();
+
+            for ((child, state), child_layout) in [&self.base, &self.top]
+                .iter()
+                .zip(&tree.children)
+                .zip(layout.children())
+            {
+                if let Some(child_id) =
+                    child
+                        .as_widget()
+                        .accessibility(child_layout, state, nodes, id_counter)
+                {
+                    child_ids.push(child_id);
+                }
+            }
+
+            if child_ids.is_empty() {
+                return None;
+            }
+
+            let id = accesskit::NodeId(*id_counter);
+            tree.set_accesskit_node_id(id);
+            *id_counter += 1;
+
+            let mut builder = accesskit::Node::new(accesskit::Role::Group);
+            crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+            for child_id in &child_ids {
+                builder.push_child(*child_id);
+            }
+
+            nodes.push((id, builder));
+            Some(id)
+        }
+
+        #[cfg(feature = "accessibility")]
+        fn accessibility_action(
+            &mut self,
+            tree: &mut crate::core::widget::Tree,
+            layout: crate::core::Layout<'_>,
+            action: &accesskit::ActionRequest,
+            shell: &mut crate::core::Shell<'_, Message>,
+        ) {
+            for ((child, state), child_layout) in [&mut self.base, &mut self.top]
+                .iter_mut()
+                .zip(&mut tree.children)
+                .zip(layout.children())
+            {
+                if !state.contains_accesskit_node_id(action.target_node) {
+                    continue;
+                }
+
+                child
+                    .as_widget_mut()
+                    .accessibility_action(state, child_layout, action, shell);
+                break;
+            }
         }
     }
 

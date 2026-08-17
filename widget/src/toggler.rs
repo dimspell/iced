@@ -32,12 +32,14 @@
 //! ```
 use crate::core::alignment;
 use crate::core::border;
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::text;
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
@@ -94,6 +96,9 @@ where
     wrapping: text::Wrapping,
     spacing: f32,
     font: Option<Renderer::Font>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
 }
@@ -128,6 +133,9 @@ where
             wrapping: text::Wrapping::default(),
             spacing: Self::DEFAULT_SIZE / 2.0,
             font: None,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
             class: Theme::default(),
             last_status: None,
         }
@@ -136,6 +144,24 @@ where
     /// Sets the label of the [`Toggler`].
     pub fn label(mut self, label: impl text::IntoFragment<'a>) -> Self {
         self.label = Some(label.into_fragment());
+        self
+    }
+
+    /// Sets the accessible label of the [`Toggler`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Toggler`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the accessible value of the [`Toggler`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -232,6 +258,35 @@ where
     }
 }
 
+struct State<P: text::Paragraph> {
+    text: widget::text::State<P>,
+    is_focused: bool,
+}
+
+impl<P: text::Paragraph> State<P> {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
+}
+
+impl<P: text::Paragraph> operation::Focusable for State<P> {
+    fn is_focused(&self) -> bool {
+        State::is_focused(self)
+    }
+    fn focus(&mut self) {
+        State::focus(self);
+    }
+    fn unfocus(&mut self) {
+        State::unfocus(self);
+    }
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Toggler<'_, Message, Theme, Renderer>
 where
@@ -239,11 +294,14 @@ where
     Renderer: text::Renderer,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<widget::text::State<Renderer::Paragraph>>()
+        tree::Tag::of::<State<Renderer::Paragraph>>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(widget::text::State::<Renderer::Paragraph>::default())
+        tree::State::new(State::<Renderer::Paragraph> {
+            text: widget::text::State::default(),
+            is_focused: false,
+        })
     }
 
     fn size(&self) -> Size<Length> {
@@ -281,9 +339,8 @@ where
             },
             |limits| {
                 if let Some(label) = self.label.as_deref() {
-                    let state = tree
-                        .state
-                        .downcast_mut::<widget::text::State<Renderer::Paragraph>>();
+                    let state_container = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+                    let state = &mut state_container.text;
 
                     widget::text::layout(
                         state,
@@ -312,7 +369,7 @@ where
 
     fn update(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
@@ -332,6 +389,22 @@ where
                 if mouse_over {
                     shell.publish(on_toggle(!self.is_toggled));
                     shell.capture_event();
+                }
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree
+                    .state
+                    .downcast_ref::<State<Renderer::Paragraph>>()
+                    .is_focused()
+                    && self.on_toggle.is_some() =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        shell.publish(on_toggle(!self.is_toggled));
+                        shell.capture_event();
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -380,6 +453,17 @@ where
         }
     }
 
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn widget::Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+        operation.focusable(None, layout.bounds(), state);
+    }
+
     fn draw(
         &self,
         tree: &Tree,
@@ -402,7 +486,8 @@ where
 
         if self.label.is_some() {
             let label_layout = children.next().unwrap();
-            let state: &widget::text::State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state_container: &State<Renderer::Paragraph> = tree.state.downcast_ref();
+            let state = &state_container.text;
 
             crate::text::draw(
                 renderer,
@@ -428,7 +513,15 @@ where
                 bounds,
                 border: Border {
                     radius: border_radius,
-                    width: style.background_border_width,
+                    width: if tree
+                        .state
+                        .downcast_ref::<State<Renderer::Paragraph>>()
+                        .is_focused()
+                    {
+                        style.background_border_width.max(2.0)
+                    } else {
+                        style.background_border_width
+                    },
                     color: style.background_border_color,
                 },
                 ..renderer::Quad::default()
@@ -471,6 +564,88 @@ where
             },
             style.foreground,
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Switch);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+
+        if let Some(label) = self.accessible_label.as_deref() {
+            builder.set_label(label);
+        } else if let Some(label) = &self.label {
+            builder.set_label(label.as_ref());
+        }
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            None,
+            self.accessible_description.as_deref(),
+            self.accessible_value.as_deref(),
+        );
+
+        builder.set_toggled(accesskit::Toggled::from(self.is_toggled));
+
+        if self.on_toggle.is_none() {
+            builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::Click);
+        }
+
+        builder.add_action(accesskit::Action::Focus);
+
+        if tree
+            .state
+            .downcast_ref::<State<Renderer::Paragraph>>()
+            .is_focused()
+        {
+            tree.set_accesskit_focused(true);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<State<Renderer::Paragraph>>()
+                    .unfocus();
+            }
+
+            return;
+        }
+
+        if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+            state.focus();
+            shell.request_redraw();
+        }
+
+        if action.action == accesskit::Action::Click {
+            if let Some(on_toggle) = &self.on_toggle {
+                shell.publish((on_toggle)(!self.is_toggled));
+                shell.request_redraw();
+            }
+        }
     }
 }
 

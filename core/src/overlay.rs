@@ -14,6 +14,9 @@ use crate::widget;
 use crate::widget::Tree;
 use crate::{Event, Layout, Rectangle, Shell, Size, Vector};
 
+#[cfg(feature = "accessibility")]
+use crate::accessibility::accesskit;
+
 /// An interactive component that can be displayed on top of other widgets.
 pub trait Overlay<Message, Theme, Renderer>
 where
@@ -88,6 +91,27 @@ where
     /// By default, it returns `1.0`.
     fn index(&self) -> f32 {
         1.0
+    }
+
+    /// Builds the accessibility nodes for this overlay.
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &mut self,
+        _layout: Layout<'_>,
+        _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        _id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        None
+    }
+
+    /// Handles an accessibility action request for this overlay.
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _layout: Layout<'_>,
+        _action: &accesskit::ActionRequest,
+        _shell: &mut Shell<'_, Message>,
+    ) {
     }
 }
 

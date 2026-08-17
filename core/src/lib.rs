@@ -36,6 +36,9 @@ pub mod touch;
 pub mod widget;
 pub mod window;
 
+#[cfg(feature = "accessibility")]
+pub mod accessibility;
+
 mod angle;
 mod background;
 mod content_fit;

@@ -17,13 +17,15 @@
 //! }
 //! ```
 use crate::core::border::{self, Border};
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::theme::palette;
 use crate::core::touch;
-use crate::core::widget::Operation;
+use crate::core::widget::Id;
+use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
@@ -73,12 +75,16 @@ where
     Renderer: crate::core::Renderer,
     Theme: Catalog,
 {
+    id: Option<Id>,
     content: Element<'a, Message, Theme, Renderer>,
     on_press: Option<OnPress<'a, Message>>,
     width: Length,
     height: Length,
     padding: Padding,
     clip: bool,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
     class: Theme::Class<'a>,
     status: Option<Status>,
 }
@@ -107,12 +113,16 @@ where
         let content = content.into();
 
         Button {
+            id: None,
             content,
             on_press: None,
             width: Length::Fit,
             height: Length::Fit,
             padding: DEFAULT_PADDING,
             clip: false,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
             class: Theme::default(),
             status: None,
         }
@@ -133,6 +143,24 @@ where
     /// Sets the [`Padding`] of the [`Button`].
     pub fn padding<P: Into<Padding>>(mut self, padding: P) -> Self {
         self.padding = padding.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`Button`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`Button`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Sets the accessible value of the [`Button`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
         self
     }
 
@@ -173,6 +201,13 @@ where
         self
     }
 
+    /// Sets the [`widget::Id`] of the [`Button`].
+    #[must_use]
+    pub fn id(mut self, id: impl Into<Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
     /// Sets the style of the [`Button`].
     #[must_use]
     pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
@@ -195,6 +230,21 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct State {
     is_pressed: bool,
+    is_focused: bool,
+}
+
+impl operation::Focusable for State {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -248,6 +298,10 @@ where
         operation: &mut dyn Operation,
     ) {
         operation.container(None, layout.bounds());
+
+        let state = tree.state.downcast_mut::<State>();
+        operation.focusable(self.id.as_ref(), layout.bounds(), state);
+
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
@@ -256,6 +310,89 @@ where
                 operation,
             );
         });
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        // Process content child first
+        let child_id = self.content.as_widget().accessibility(
+            layout.children().next().unwrap(),
+            &tree.children[0],
+            nodes,
+            id_counter,
+        );
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Button);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            self.accessible_value.as_deref(),
+        );
+
+        if self.on_press.is_none() {
+            builder.set_disabled();
+        } else {
+            builder.add_action(accesskit::Action::Click);
+            builder.add_child_action(accesskit::Action::Click);
+        }
+
+        builder.add_action(accesskit::Action::Focus);
+        builder.add_child_action(accesskit::Action::Focus);
+
+        if let Some(child_id) = child_id {
+            builder.push_child(child_id);
+            if self.accessible_label.is_none() {
+                builder.set_labelled_by(vec![child_id]);
+            }
+        }
+
+        if tree.state.downcast_ref::<State>().is_focused {
+            tree.set_accesskit_focused(true);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State>().is_focused = false;
+            }
+
+            return;
+        }
+
+        if action.action == accesskit::Action::Click {
+            if let Some(on_press) = &self.on_press {
+                shell.publish(on_press.get());
+                shell.request_redraw();
+            }
+        } else if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State>();
+            state.is_focused = true;
+            shell.request_redraw();
+        }
     }
 
     fn update(
@@ -320,6 +457,20 @@ where
 
                 state.is_pressed = false;
             }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if tree.state.downcast_ref::<State>().is_focused && self.on_press.is_some() =>
+            {
+                match key {
+                    keyboard::Key::Named(keyboard::key::Named::Enter)
+                    | keyboard::Key::Named(keyboard::key::Named::Space) => {
+                        if let Some(on_press) = &self.on_press {
+                            shell.publish(on_press.get());
+                            shell.capture_event();
+                        }
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
 
@@ -358,11 +509,21 @@ where
         let content_layout = layout.children().next().unwrap();
         let style = theme.style(&self.class, self.status.unwrap_or(Status::Disabled));
 
-        if style.background.is_some() || style.border.width > 0.0 || style.shadow.color.a > 0.0 {
+        let is_focused = tree.state.downcast_ref::<State>().is_focused;
+        let border = if is_focused {
+            Border {
+                width: style.border.width.max(2.0),
+                ..style.border
+            }
+        } else {
+            style.border
+        };
+
+        if style.background.is_some() || border.width > 0.0 || style.shadow.color.a > 0.0 {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
-                    border: style.border,
+                    border,
                     shadow: style.shadow,
                     snap: style.snap,
                 },

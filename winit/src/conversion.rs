@@ -507,7 +507,29 @@ pub fn modifiers(modifiers: winit::keyboard::ModifiersState) -> keyboard::Modifi
     result.set(keyboard::Modifiers::ALT, modifiers.alt_key());
     result.set(keyboard::Modifiers::LOGO, modifiers.super_key());
 
+    #[cfg(target_os = "macos")]
+    {
+        result.set(
+            keyboard::Modifiers::ACCESSIBILITY,
+            macos_voiceover_modifiers_active(modifiers),
+        );
+    }
+
     result
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn macos_voiceover_modifiers_active(modifiers: winit::keyboard::ModifiersState) -> bool {
+    use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSWorkspace};
+
+    // Event conversion runs on AppKit's main event-loop thread.
+    let voiceover_enabled = unsafe { NSWorkspace::sharedWorkspace().isVoiceOverEnabled() };
+    let caps_lock = unsafe { NSEvent::modifierFlags_class() }
+        .contains(NSEventModifierFlags::NSEventModifierFlagCapsLock);
+    let voiceover_chord = (modifiers.control_key() && modifiers.alt_key()) || caps_lock;
+
+    voiceover_enabled && voiceover_chord
 }
 
 /// Converts a physical cursor position into a logical `Point`.

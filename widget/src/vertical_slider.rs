@@ -39,9 +39,13 @@ use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::touch;
+use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{self, Element, Event, Length, Pixels, Point, Rectangle, Shell, Size, Widget};
+
+#[cfg(feature = "accessibility")]
+use crate::core::accessibility::accesskit;
 
 /// An vertical bar and a handle that selects a single value from a range of
 /// values.
@@ -98,6 +102,9 @@ where
     height: Length,
     class: Theme::Class<'a>,
     status: Option<Status>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
+    accessible_value: Option<String>,
 }
 
 impl<'a, T, Message, Theme> VerticalSlider<'a, T, Message, Theme>
@@ -145,6 +152,9 @@ where
             height: Length::Fill,
             class: Theme::default(),
             status: None,
+            accessible_label: None,
+            accessible_description: None,
+            accessible_value: None,
         }
     }
 
@@ -203,6 +213,27 @@ where
         self
     }
 
+    /// Sets the accessible label of the [`VerticalSlider`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the slider.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible description of the [`VerticalSlider`].
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
+        self
+    }
+
+    /// Overrides the accessible value of the [`VerticalSlider`].
+    pub fn accessible_value(mut self, value: impl Into<String>) -> Self {
+        self.accessible_value = Some(value.into());
+        self
+    }
+
     /// Sets the style class of the [`VerticalSlider`].
     #[cfg(feature = "advanced")]
     #[must_use]
@@ -226,6 +257,17 @@ where
 
     fn state(&self) -> tree::State {
         tree::State::new(State::default())
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_mut::<State>();
+        operation.focusable(None, layout.bounds(), state);
     }
 
     fn size(&self) -> Size<Length> {
@@ -376,8 +418,9 @@ where
 
                 shell.capture_event();
             }
-            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
-                if cursor.is_over(layout.bounds()) =>
+            Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. })
+                if (cursor.is_over(layout.bounds()) || state.is_focused)
+                    && !voiceover_modifiers(*modifiers) =>
             {
                 match key {
                     Key::Named(key::Named::ArrowUp) => {
@@ -399,7 +442,7 @@ where
 
         let current_status = if state.is_dragging {
             Status::Dragged
-        } else if cursor.is_over(layout.bounds()) {
+        } else if cursor.is_over(layout.bounds()) || state.is_focused {
             Status::Hovered
         } else {
             Status::Active
@@ -423,6 +466,11 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
+
+        #[cfg(feature = "accessibility")]
+        if _tree.accesskit_focused() {
+            crate::focus_ring::draw(renderer, bounds, &crate::focus_ring::Appearance::default());
+        }
 
         let style = theme.style(&self.class, self.status.unwrap_or(Status::Active));
 
@@ -496,6 +544,101 @@ where
         );
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Slider);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+
+        let value_f64: f64 = self.value.as_();
+        let min_f64: f64 = self.range.start().as_();
+        let max_f64: f64 = self.range.end().as_();
+
+        builder.set_numeric_value(value_f64);
+        builder.set_min_numeric_value(min_f64);
+        builder.set_max_numeric_value(max_f64);
+        builder.set_numeric_value_step(self.step.as_());
+        builder.set_orientation(accesskit::Orientation::Vertical);
+        if let Some(value) = &self.accessible_value {
+            builder.set_value(value.clone());
+        }
+
+        builder.add_action(accesskit::Action::Increment);
+        builder.add_action(accesskit::Action::Decrement);
+        builder.add_action(accesskit::Action::SetValue);
+        builder.add_action(accesskit::Action::Focus);
+
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
+
+        // Track keyboard focus for the accessibility tree
+        if tree.state.downcast_ref::<State>().is_focused {
+            tree.set_accesskit_focused(true);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if !tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<State>().is_focused = false;
+            }
+
+            return;
+        }
+
+        if action.action == accesskit::Action::Focus {
+            let state = tree.state.downcast_mut::<State>();
+            state.is_focused = true;
+            shell.request_redraw();
+            return;
+        }
+
+        let current: f64 = self.value.as_();
+        let new_value: f64 = match action.action {
+            accesskit::Action::Increment => (current + self.step.as_()).min(self.range.end().as_()),
+            accesskit::Action::Decrement => {
+                (current - self.step.as_()).max(self.range.start().as_())
+            }
+            accesskit::Action::SetValue => {
+                let Some(value) = action.data.as_ref().and_then(numeric_action_value) else {
+                    return;
+                };
+
+                value.clamp(self.range.start().as_(), self.range.end().as_())
+            }
+            _ => return,
+        };
+
+        if let Some(value) = T::from_f64(new_value) {
+            shell.publish((self.on_change)(value));
+            shell.request_redraw();
+        }
+    }
+
     fn mouse_interaction(
         &self,
         tree: &Tree,
@@ -526,6 +669,19 @@ where
     }
 }
 
+fn voiceover_modifiers(modifiers: keyboard::Modifiers) -> bool {
+    modifiers.accessibility()
+}
+
+#[cfg(feature = "accessibility")]
+fn numeric_action_value(data: &accesskit::ActionData) -> Option<f64> {
+    match data {
+        accesskit::ActionData::NumericValue(value) => Some(*value),
+        accesskit::ActionData::Value(value) => value.parse().ok(),
+        _ => None,
+    }
+}
+
 impl<'a, T, Message, Theme, Renderer> From<VerticalSlider<'a, T, Message, Theme>>
     for Element<'a, Message, Theme, Renderer>
 where
@@ -545,4 +701,17 @@ where
 struct State {
     is_dragging: bool,
     keyboard_modifiers: keyboard::Modifiers,
+    is_focused: bool,
+}
+
+impl operation::Focusable for State {
+    fn is_focused(&self) -> bool {
+        self.is_focused
+    }
+    fn focus(&mut self) {
+        self.is_focused = true;
+    }
+    fn unfocus(&mut self) {
+        self.is_focused = false;
+    }
 }

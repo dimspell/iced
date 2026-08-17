@@ -155,6 +155,7 @@ where
     menu_class: <Theme as menu::Catalog>::Class<'a>,
     menu_height: Length,
     last_status: Option<text_input::Status>,
+    accessible_label: Option<String>,
 }
 
 impl<'a, T, Message, Theme, Renderer> ComboBox<'a, T, Message, Theme, Renderer>
@@ -193,6 +194,7 @@ where
             menu_class: <Theme as Catalog>::default_menu(),
             menu_height: Length::Shrink,
             last_status: None,
+            accessible_label: None,
         }
     }
 
@@ -319,6 +321,21 @@ where
     #[must_use]
     pub fn menu_class(mut self, class: impl Into<<Theme as menu::Catalog>::Class<'a>>) -> Self {
         self.menu_class = class.into();
+        self
+    }
+
+    /// Sets the accessible label of the [`ComboBox`].
+    ///
+    /// This is used by screen readers and other assistive technologies
+    /// to describe the purpose of the combobox.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ComboBox::new(state, "Choose option...", &options, |opt| Message::Selected(opt))
+    ///     .accessible_label("Options")
+    /// ```
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -689,6 +706,96 @@ where
         );
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::ComboBox);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+
+        // Set the current value
+        if !self.selection.is_empty() {
+            builder.set_value(self.selection.clone());
+        }
+
+        builder.add_action(accesskit::Action::Expand);
+        builder.add_action(accesskit::Action::Collapse);
+        builder.add_action(accesskit::Action::Focus);
+        builder.add_child_action(accesskit::Action::Click);
+        builder.add_child_action(accesskit::Action::Expand);
+        builder.add_child_action(accesskit::Action::Focus);
+        builder.set_has_popup(accesskit::HasPopup::Listbox);
+
+        // Track keyboard focus for the accessibility tree
+        let state = tree.state.downcast_ref::<Internal<T, Renderer>>();
+        let is_focused = state.editor.input.is_focused();
+
+        // The popup is considered open while the inner input is focused
+        builder.set_expanded(is_focused);
+
+        if is_focused {
+            tree.set_accesskit_focused(true);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut widget::Tree,
+        _layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        use crate::core::accessibility::accesskit;
+
+        if !tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state.downcast_mut::<Internal<T, Renderer>>().editor.input.unfocus();
+            }
+
+            return;
+        }
+
+        let state = tree.state.downcast_mut::<Internal<T, Renderer>>();
+
+        match action.action {
+            accesskit::Action::Click | accesskit::Action::Expand => {
+                if !state.editor.input.is_focused() {
+                    state.editor.input.focus();
+                    shell.invalidate_layout();
+                }
+            }
+            accesskit::Action::Collapse => {
+                if state.editor.input.is_focused() {
+                    state.editor.input.unfocus();
+                    shell.invalidate_layout();
+                }
+            }
+            accesskit::Action::Focus => {
+                state.editor.input.focus();
+            }
+            _ => {}
+        }
+    }
+
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut widget::Tree,
@@ -713,6 +820,14 @@ where
                 None
             } else {
                 let bounds = layout.bounds();
+                let selection = self.selection.to_string();
+                let selected_option = (!selection.is_empty())
+                    .then(|| {
+                        filtered_options
+                            .iter()
+                            .position(|option| option.to_string() == selection)
+                    })
+                    .flatten();
 
                 let mut menu = menu::Menu::new(
                     menu,
@@ -729,6 +844,7 @@ where
                     self.on_option_hovered.as_deref(),
                     &self.menu_class,
                 )
+                .selected(selected_option)
                 .width(bounds.width)
                 .padding(self.padding)
                 .shaping(self.shaping)

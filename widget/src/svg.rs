@@ -64,6 +64,8 @@ where
     rotation: Rotation,
     opacity: f32,
     status: Option<Status>,
+    accessible_label: Option<String>,
+    accessible_description: Option<String>,
 }
 
 impl<'a, Theme> Svg<'a, Theme>
@@ -81,6 +83,8 @@ where
             rotation: Rotation::default(),
             opacity: 1.0,
             status: None,
+            accessible_label: None,
+            accessible_description: None,
         }
     }
 
@@ -146,6 +150,22 @@ where
     /// and `1.0` meaning completely opaque.
     pub fn opacity(mut self, opacity: impl Into<f32>) -> Self {
         self.opacity = opacity.into();
+        self
+    }
+
+    /// Sets the accessible label for this SVG image, providing a text
+    /// alternative for screen readers (analogous to HTML's `alt` attribute).
+    ///
+    /// Informative SVG icons should have a descriptive label. Purely
+    /// decorative graphics can omit this method.
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Sets an accessible description for this SVG image.
+    pub fn accessible_description(mut self, description: impl Into<String>) -> Self {
+        self.accessible_description = Some(description.into());
         self
     }
 }
@@ -267,6 +287,33 @@ where
             drawing_bounds,
             bounds,
         );
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        crate::core::accessibility::apply_metadata(
+            &mut builder,
+            self.accessible_label.as_deref(),
+            self.accessible_description.as_deref(),
+            None,
+        );
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

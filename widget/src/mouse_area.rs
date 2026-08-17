@@ -282,6 +282,49 @@ where
             translation,
         )
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let child_layout = layout.children().next()?;
+        let child_tree = tree.children.first()?;
+
+        let child_id =
+            self.content
+                .as_widget()
+                .accessibility(child_layout, child_tree, nodes, id_counter);
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        if let Some(child_id) = child_id {
+            builder.push_child(child_id);
+        }
+        nodes.push((id, builder));
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if let (Some(state), Some(layout)) = (tree.children.first_mut(), layout.children().next()) {
+            self.content
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+        }
+    }
 }
 
 impl<'a, Message, Theme, Renderer> From<MouseArea<'a, Message, Theme, Renderer>>

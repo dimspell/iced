@@ -361,6 +361,17 @@ where
             translation,
         )
     }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        _tree: &crate::core::widget::Tree,
+        _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        _id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        None
+    }
 }
 
 impl<'a, Message, Theme, Renderer, P> From<Transition<'a, Message, Theme, Renderer, P>>

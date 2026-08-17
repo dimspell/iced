@@ -66,6 +66,130 @@ use std::mem::ManuallyDrop;
 use std::slice;
 use std::sync::Arc;
 
+#[cfg(feature = "accessibility")]
+use accesskit_winit;
+
+/// A wrapper around `accesskit_winit::Adapter` that implements `Send`
+/// for use with the single-threaded event loop channel.
+#[cfg(feature = "accessibility")]
+struct SendAdapter(Option<accesskit_winit::Adapter>);
+
+#[cfg(feature = "accessibility")]
+impl std::fmt::Debug for SendAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SendAdapter")
+            .field("adapter", &self.0.as_ref().map(|_| "Adapter"))
+            .finish()
+    }
+}
+
+#[cfg(feature = "accessibility")]
+// SAFETY: The adapter is only ever constructed and used on the main event
+// loop thread, even though the channel types technically require `Send`.
+#[allow(unsafe_code)]
+unsafe impl Send for SendAdapter {}
+
+#[cfg(feature = "accessibility")]
+impl SendAdapter {
+    fn into_inner(self) -> Option<accesskit_winit::Adapter> {
+        self.0
+    }
+}
+
+#[cfg(feature = "accessibility")]
+impl From<accesskit_winit::Adapter> for SendAdapter {
+    fn from(adapter: accesskit_winit::Adapter) -> Self {
+        Self(Some(adapter))
+    }
+}
+
+// Accessibility handler implementations.
+#[cfg(feature = "accessibility")]
+mod accessibility_handlers {
+    use crate::core::accessibility::accesskit::{
+        ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate,
+    };
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+
+    /// Queue of pending accessibility actions to be processed on the main
+    /// event loop thread.
+    static PENDING_ACTIONS: Mutex<VecDeque<ActionRequest>> = Mutex::new(VecDeque::new());
+
+    /// Shared initial tree update provided to the activation handler.
+    ///
+    /// This is populated once the user interface is built, before the window
+    /// is made visible. When the screen reader queries the view for its
+    /// initial accessibility tree, the activation handler returns this tree
+    /// so the adapter transitions directly to `Active` state, avoiding a
+    /// placeholder tree being visible to assistive technologies.
+    pub(super) static INITIAL_TREE: OnceLock<Mutex<Option<TreeUpdate>>> = OnceLock::new();
+
+    /// Takes all pending actions from the queue.
+    pub(super) fn drain_actions() -> VecDeque<ActionRequest> {
+        PENDING_ACTIONS.lock().unwrap().drain(..).collect()
+    }
+
+    pub(super) struct Activation;
+    impl ActivationHandler for Activation {
+        fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+            INITIAL_TREE
+                .get()
+                .and_then(|m| m.lock().ok())
+                .and_then(|mut guard| guard.take())
+        }
+    }
+
+    pub(super) struct Action {
+        pub(super) waker: crate::core::shell::Waker,
+    }
+
+    impl ActionHandler for Action {
+        fn do_action(&mut self, request: ActionRequest) {
+            PENDING_ACTIONS.lock().unwrap().push_back(request);
+            self.waker.wake();
+        }
+    }
+
+    pub(super) struct Deactivation;
+    impl DeactivationHandler for Deactivation {
+        fn deactivate_accessibility(&mut self) {
+            // No cleanup needed — the adapter is reused if the screen reader
+            // re-activates via ActivationHandler.
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::core::accessibility::accesskit::{Action as AccessKitAction, NodeId, TreeId};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        #[test]
+        fn accessibility_action_wakes_event_loop() {
+            let was_woken = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&was_woken);
+            let mut handler = Action {
+                waker: crate::core::shell::Waker::new(move || {
+                    flag.store(true, Ordering::SeqCst);
+                }),
+            };
+
+            handler.do_action(ActionRequest {
+                action: AccessKitAction::Increment,
+                target_tree: TreeId::ROOT,
+                target_node: NodeId(1),
+                data: None,
+            });
+
+            assert!(was_woken.load(Ordering::SeqCst));
+            assert_eq!(drain_actions().len(), 1);
+        }
+    }
+}
+
 /// Runs a [`Program`] with the provided settings.
 pub fn run<P>(program: P) -> Result<(), Error>
 where
@@ -154,6 +278,9 @@ where
         error: Option<Error>,
         system_theme: Option<oneshot::Sender<theme::Mode>>,
 
+        #[cfg(feature = "accessibility")]
+        accessibility_waker: core::shell::Waker,
+
         #[cfg(target_arch = "wasm32")]
         canvas: Option<web_sys::HtmlCanvasElement>,
     }
@@ -166,6 +293,15 @@ where
         receiver: control_receiver,
         error: None,
         system_theme: Some(system_theme_sender),
+
+        #[cfg(feature = "accessibility")]
+        accessibility_waker: {
+            let proxy = proxy.clone();
+
+            core::shell::Waker::new(move || {
+                proxy.send_action(Action::Window(runtime::window::Action::RedrawAll));
+            })
+        },
 
         #[cfg(target_arch = "wasm32")]
         canvas: None,
@@ -382,6 +518,30 @@ where
                                     };
                                 }
 
+                                #[cfg(feature = "accessibility")]
+                                let accessibility_adapter = {
+                                    use crate::accessibility_handlers;
+                                    use accesskit_winit::Adapter;
+
+                                    // Initialize the shared initial tree storage before
+                                    // creating the adapter so that `request_initial_tree`
+                                    // can return the tree once it's built.
+                                    let _ = accessibility_handlers::INITIAL_TREE
+                                        .set(std::sync::Mutex::new(None));
+
+                                    // Create the adapter before the window is shown
+                                    let adapter = Adapter::with_direct_handlers(
+                                        event_loop,
+                                        &window,
+                                        accessibility_handlers::Activation,
+                                        accessibility_handlers::Action {
+                                            waker: self.accessibility_waker.clone(),
+                                        },
+                                        accessibility_handlers::Deactivation,
+                                    );
+                                    SendAdapter::from(adapter)
+                                };
+
                                 self.process_event(
                                     event_loop,
                                     Event::WindowCreated {
@@ -390,6 +550,8 @@ where
                                         exit_on_close_request,
                                         make_visible: visible,
                                         on_open,
+                                        #[cfg(feature = "accessibility")]
+                                        accessibility_adapter,
                                     },
                                 );
                             }
@@ -448,6 +610,8 @@ enum Event<Message: 'static> {
         exit_on_close_request: bool,
         make_visible: bool,
         on_open: oneshot::Sender<window::Id>,
+        #[cfg(feature = "accessibility")]
+        accessibility_adapter: SendAdapter,
     },
     EventLoopAwakened(winit::event::Event<Message>),
     Exit,
@@ -553,6 +717,8 @@ async fn run_instance<P>(
                 exit_on_close_request,
                 make_visible,
                 on_open,
+                #[cfg(feature = "accessibility")]
+                accessibility_adapter,
             } => {
                 if compositor.is_none() {
                     let (compositor_sender, compositor_receiver) = oneshot::channel();
@@ -640,6 +806,11 @@ async fn run_instance<P>(
                     system_theme,
                 );
 
+                #[cfg(feature = "accessibility")]
+                {
+                    window.accessibility_adapter = accessibility_adapter.into_inner();
+                }
+
                 window
                     .raw
                     .set_theme(conversion::window_theme(window.state.theme_mode()));
@@ -667,6 +838,24 @@ async fn run_instance<P>(
                     ),
                 );
                 let _ = ui_caches.insert(id, user_interface::Cache::default());
+
+                // Send an initial accessibility tree immediately so the
+                // screen reader has content on first activation.
+                #[cfg(feature = "accessibility")]
+                if let Some(ui) = user_interfaces.get_mut(&id) {
+                    let mut tree = ui.accessibility_tree(&window.renderer);
+                    window.scale_accessibility_tree(&mut tree);
+
+                    // Store the tree so `request_initial_tree` on the
+                    // activation handler can return it when the screen reader
+                    // first queries the view, transitioning the adapter
+                    // directly to `Active` state.
+                    if let Some(initial_tree) = accessibility_handlers::INITIAL_TREE.get() {
+                        *initial_tree.lock().unwrap() = Some(tree.clone());
+                    }
+
+                    window.update_accessibility_tree(tree);
+                }
 
                 if make_visible {
                     window.raw.set_visible(true);
@@ -934,6 +1123,63 @@ async fn run_instance<P>(
 
                         window.draw_preedit();
 
+                        #[cfg(feature = "accessibility")]
+                        {
+                            // Process pending accessibility actions from assistive technologies
+                            let accessibility_actions = accessibility_handlers::drain_actions();
+                            let numeric_value_action_received =
+                                accessibility_actions.iter().any(|request| {
+                                    use core::accessibility::accesskit::{Action, ActionData};
+
+                                    matches!(request.action, Action::Increment | Action::Decrement)
+                                        || matches!(
+                                            (&request.action, request.data.as_ref()),
+                                            (Action::SetValue, Some(ActionData::NumericValue(_)))
+                                        )
+                                });
+
+                            for request in &accessibility_actions {
+                                let mut shell = core::Shell::new(
+                                    &window.raw,
+                                    window.waker.clone(),
+                                    &mut messages,
+                                );
+                                interface.handle_accessibility_action(
+                                    &window.renderer,
+                                    &request,
+                                    &mut shell,
+                                );
+                                shell.revalidate_layout(|diff| {
+                                    interface.revalidate_layout(&mut window.renderer, diff);
+                                });
+                                window.request_redraw(shell.redraw_request());
+                            }
+
+                            let have_pending = !accessibility_actions.is_empty();
+                            let should_debounce_value_update = window
+                                .debounce_accessibility_value_update(numeric_value_action_received);
+
+                            // Determine if we should update the accessibility tree now:
+                            //   - If there are no pending actions: follow the debounce for
+                            //     value updates (Increment/Decrement/SetValue).
+                            //   - If there ARE pending actions (Focus, ScrollIntoView, etc.):
+                            //     process them immediately so VoiceOver sees the updated tree
+                            //     (especially scroll positions for off-screen rows).
+                            let should_update_tree = if have_pending {
+                                // Non-value actions affect tree structure/scroll — always
+                                // update immediately. Value actions are debounced below.
+                                !numeric_value_action_received
+                            } else {
+                                should_debounce_value_update
+                            };
+
+                            if should_update_tree {
+                                let mut tree = interface.accessibility_tree(&window.renderer);
+                                window.scale_accessibility_tree(&mut tree);
+                                window.update_accessibility_tree(tree);
+                            }
+                        }
+
                         let present_span = debug::present(id);
                         match current_compositor.present(
                             &mut window.renderer,
@@ -1050,6 +1296,11 @@ async fn run_instance<P>(
                                 &mut renderer_settings,
                             );
                         } else {
+                            #[cfg(feature = "accessibility")]
+                            if let Some(adapter) = &mut window.accessibility_adapter {
+                                adapter.process_event(&window.raw, &window_event);
+                            }
+
                             window.state.update(&program, &window.raw, &window_event);
 
                             if let Some(event) = conversion::window_event(
@@ -1067,7 +1318,44 @@ async fn run_instance<P>(
                             actions = 0;
                         }
 
-                        if events.is_empty() && messages.is_empty() && window_manager.is_idle() {
+                        // On Windows, a `Resized` event or its `RedrawRequested`
+                        // counterpart can be missed during a resize/fullscreen
+                        // transition (e.g. a `WM_PAINT` pending while the event
+                        // loop sleeps is never dispatched). Reconcile the window
+                        // state with the real size and force a redraw so the
+                        // layout and surface are rebuilt with the correct size.
+                        let mut force_redraw = false;
+
+                        for (_id, window) in window_manager.iter_mut() {
+                            let actual_size = window.raw.inner_size();
+                            let expected_size = window.state.physical_size();
+
+                            if actual_size.width != expected_size.width
+                                || actual_size.height != expected_size.height
+                            {
+                                window.state.update(
+                                    &program,
+                                    &window.raw,
+                                    &winit::event::WindowEvent::Resized(actual_size),
+                                );
+
+                                force_redraw = true;
+                            }
+
+                            // The state changed (e.g. a `Resized` was processed)
+                            // but no relayout happened yet. Make sure a
+                            // `RedrawRequested` is on the way so the gate at
+                            // `RedrawRequested` can relayout and reconfigure.
+                            if window.surface_version != window.state.surface_version() {
+                                force_redraw = true;
+                            }
+                        }
+
+                        if events.is_empty()
+                            && messages.is_empty()
+                            && window_manager.is_idle()
+                            && !force_redraw
+                        {
                             continue;
                         }
 
@@ -1138,6 +1426,16 @@ async fn run_instance<P>(
                             }
 
                             interact_span.finish();
+                        }
+
+                        // The relayout inside `RedrawRequested` only runs when a
+                        // `RedrawRequested` is actually delivered. If a resize was
+                        // missed (or its redraw never dispatched), force one so the
+                        // layout and surface are rebuilt with the reconciled size.
+                        if force_redraw {
+                            for (_id, window) in window_manager.iter_mut() {
+                                window.raw.request_redraw();
+                            }
                         }
 
                         for (id, event) in events.drain(..) {

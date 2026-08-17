@@ -3,3 +3,17 @@ pkg/
 **/*.rs.bk
 dist/
 traces/
+
+# Accessibility uses local AccessKit patches that must travel with the fork.
+!vendor/
+vendor/*
+!vendor/accesskit_consumer/
+!vendor/accesskit_consumer/**
+!vendor/accesskit_ios/
+!vendor/accesskit_ios/**
+!vendor/accesskit_windows/
+!vendor/accesskit_windows/**
+!vendor/accesskit_winit/
+!vendor/accesskit_winit/**
+vendor/**/.cargo-ok
+vendor/**/.cargo_vcs_info.json

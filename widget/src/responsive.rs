@@ -133,6 +133,19 @@ where
         );
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.content
+            .as_widget()
+            .accessibility(layout, &tree.children[0], nodes, id_counter)
+    }
+
     fn mouse_interaction(
         &self,
         tree: &Tree,

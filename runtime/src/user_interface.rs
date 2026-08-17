@@ -1,5 +1,6 @@
 //! Implement your own event loop to drive a user interface.
 use crate::core::event::{self, Event};
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
@@ -10,6 +11,9 @@ use crate::core::window;
 use crate::core::{
     Clipboard, Element, InputMethod, Layout, Rectangle, Shell, Size, Vector, Window,
 };
+
+#[cfg(feature = "accessibility")]
+use crate::core::accessibility::accesskit;
 
 /// A set of interactive graphical elements with a specific [`Layout`].
 ///
@@ -324,6 +328,17 @@ where
                     return overlay_status;
                 }
 
+                if matches!(
+                    event,
+                    Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                        | Event::Touch(crate::core::touch::Event::FingerPressed { .. })
+                ) && let Some(position) = base_cursor.position()
+                {
+                    let mut operation = widget::operation::focusable::focus_at::<()>(position);
+                    self.operate(renderer, &mut operation);
+                    redraw_request = redraw_request.min(window::RedrawRequest::NextFrame);
+                }
+
                 let mut shell = Shell::new(window, waker.clone(), messages);
 
                 self.root.as_widget_mut().update(
@@ -385,6 +400,28 @@ where
 
                 if shell.are_widgets_invalid() {
                     outdated = true;
+                }
+
+                if shell.event_status() == event::Status::Ignored
+                    && let Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Tab),
+                        modifiers,
+                        ..
+                    }) = event
+                {
+                    if modifiers.shift() {
+                        let mut op = widget::operation::focusable::focus_previous::<()>();
+
+                        self.operate(renderer, &mut op);
+                    } else {
+                        let mut op = widget::operation::focusable::focus_next::<()>();
+
+                        self.operate(renderer, &mut op);
+                    }
+
+                    redraw_request = redraw_request.min(window::RedrawRequest::NextFrame);
+
+                    return event::Status::Captured;
                 }
 
                 shell.event_status().merge(overlay_status)
@@ -553,6 +590,17 @@ where
 
     /// Applies a [`widget::Operation`] to the [`UserInterface`].
     pub fn operate(&mut self, renderer: &Renderer, operation: &mut dyn widget::Operation) {
+        self.operate_once(renderer, operation);
+
+        let mut outcome = operation.finish();
+
+        while let widget::operation::Outcome::Chain(mut next) = outcome {
+            self.operate_once(renderer, &mut *next);
+            outcome = next.finish();
+        }
+    }
+
+    fn operate_once(&mut self, renderer: &Renderer, operation: &mut dyn widget::Operation) {
         let viewport = Rectangle::with_size(self.bounds);
 
         self.root.as_widget_mut().operate(
@@ -587,6 +635,189 @@ where
                 operation,
             );
         }
+    }
+
+    /// Returns the accessibility tree update for the [`UserInterface`].
+    #[cfg(feature = "accessibility")]
+    pub fn accessibility_tree(&mut self, renderer: &Renderer) -> accesskit::TreeUpdate {
+        // Reset focus flags from the previous frame so only widgets that
+        // are currently focused report themselves.
+        reset_accesskit_focus(&self.state);
+
+        let mut nodes = Vec::new();
+        let mut id_counter = 1u64;
+
+        let root_id = self.root.as_widget().accessibility(
+            Layout::new(&self.base),
+            &self.state,
+            &mut nodes,
+            &mut id_counter,
+        );
+
+        let root = root_id.unwrap_or(accesskit::NodeId(0));
+        let focus = find_focused_node_id(&self.state).unwrap_or(root);
+
+        // Build overlay accessibility tree
+        let viewport = Rectangle::with_size(self.bounds);
+        if let Some(mut overlay) = self
+            .root
+            .as_widget_mut()
+            .overlay(
+                &mut self.state,
+                Layout::new(&self.base),
+                renderer,
+                &viewport,
+                Vector::ZERO,
+            )
+            .map(crate::core::overlay::Nested::new)
+        {
+            let overlay_start = nodes.len();
+            let overlay_root_id =
+                overlay.accessibility(renderer, self.bounds, &mut nodes, &mut id_counter);
+
+            // Attach overlay root as child of the widget that owns it
+            // (e.g., an expanded ComboBox) rather than the window root.
+            // This lets screen readers discover popup options as belonging to
+            // the popup button they originated from.
+            if let Some(overlay_root_id) = overlay_root_id {
+                let overlay_nodes = &nodes[overlay_start..];
+                let has_menu_popup = overlay_nodes
+                    .iter()
+                    .any(|(_, n)| n.role() == accesskit::Role::MenuListPopup);
+                let has_tooltip = overlay_nodes
+                    .iter()
+                    .any(|(_, n)| n.role() == accesskit::Role::Tooltip);
+                let popup = overlay_nodes
+                    .iter()
+                    .find(|(_, n)| n.role() == accesskit::Role::MenuListPopup)
+                    .map(|(id, node)| (*id, node.active_descendant()));
+                let popup_active_descendant = popup.and_then(|(_, active)| active);
+
+                let popup_parent_id = if has_menu_popup {
+                    nodes[..overlay_start]
+                        .iter()
+                        .rev()
+                        .find(|(_, n)| {
+                            n.role() == accesskit::Role::ComboBox && n.is_expanded() == Some(true)
+                        })
+                        .map(|(id, _)| *id)
+                } else if has_tooltip {
+                    nodes[..overlay_start]
+                        .iter()
+                        .rev()
+                        .find(|(_, n)| {
+                            n.has_popup() == Some(accesskit::HasPopup::Menu)
+                                && n.is_expanded() == Some(true)
+                        })
+                        .map(|(id, _)| *id)
+                } else {
+                    None
+                }
+                .unwrap_or(root);
+
+                if let Some((_, parent_node)) =
+                    nodes.iter_mut().find(|(id, _)| *id == popup_parent_id)
+                {
+                    let mut children = parent_node.children().to_vec();
+
+                    if !children.contains(&overlay_root_id) {
+                        children.push(overlay_root_id);
+                    }
+
+                    parent_node.set_children(children);
+                    parent_node.set_controls(&[popup.map_or(overlay_root_id, |(id, _)| id)]);
+
+                    if let Some(active_descendant) = popup_active_descendant {
+                        parent_node.set_active_descendant(active_descendant);
+                    }
+                }
+            }
+        }
+
+        accesskit::TreeUpdate {
+            nodes,
+            tree: Some(accesskit::Tree::new(root)),
+            focus,
+            tree_id: accesskit::TreeId::ROOT,
+        }
+    }
+
+    /// Handles an accessibility action request by dispatching it to the
+    /// appropriate widget in the tree, including any active overlays.
+    #[cfg(feature = "accessibility")]
+    pub fn handle_accessibility_action(
+        &mut self,
+        renderer: &Renderer,
+        request: &accesskit::ActionRequest,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        if request.action == accesskit::Action::Focus {
+            let target_is_in_base_tree = self.state.contains_accesskit_node_id(request.target_node);
+
+            if target_is_in_base_tree {
+                let scroll_request = accesskit::ActionRequest {
+                    action: accesskit::Action::ScrollIntoView,
+                    target_tree: request.target_tree,
+                    target_node: request.target_node,
+                    data: None,
+                };
+
+                self.root.as_widget_mut().accessibility_action(
+                    &mut self.state,
+                    Layout::new(&self.base),
+                    &scroll_request,
+                    shell,
+                );
+                let mut operation = widget::operation::focusable::unfocus::<()>();
+
+                self.operate(renderer, &mut operation);
+            }
+        }
+
+        // Dispatch to root widget tree
+        if self.state.contains_accesskit_node_id(request.target_node) {
+            self.root.as_widget_mut().accessibility_action(
+                &mut self.state,
+                Layout::new(&self.base),
+                request,
+                shell,
+            );
+        }
+
+        // Also dispatch to active overlays
+        let viewport = Rectangle::with_size(self.bounds);
+        if let Some(mut overlay) = self
+            .root
+            .as_widget_mut()
+            .overlay(
+                &mut self.state,
+                Layout::new(&self.base),
+                renderer,
+                &viewport,
+                Vector::ZERO,
+            )
+            .map(overlay::Nested::new)
+        {
+            overlay.accessibility_action(renderer, self.bounds, request, shell);
+        }
+    }
+
+    /// Revalidates the current widget layout using the given [`shell::Diff`].
+    pub fn revalidate_layout(&mut self, renderer: &mut Renderer, diff: shell::Diff) {
+        match diff {
+            shell::Diff::Perform => {
+                self.root.as_widget_mut().diff(&mut self.state);
+            }
+            shell::Diff::Skip => {}
+        }
+
+        self.base = self.root.as_widget_mut().layout(
+            &mut self.state,
+            renderer,
+            &layout::Limits::new(Size::ZERO, self.bounds),
+        );
+
+        self.overlay = None;
     }
 
     /// Relayouts and returns a new  [`UserInterface`] using the provided
@@ -657,5 +888,35 @@ impl State {
                 has_layout_changed, ..
             } => *has_layout_changed,
         }
+    }
+}
+
+/// Recursively walks the widget [`Tree`] to find the first node that has
+/// keyboard focus, returning its accesskit [`NodeId`].
+#[cfg(feature = "accessibility")]
+fn find_focused_node_id(tree: &widget::Tree) -> Option<accesskit::NodeId> {
+    if tree.accesskit_focused() {
+        return tree.accesskit_node_id();
+    }
+
+    for child in &tree.children {
+        if let Some(id) = find_focused_node_id(child) {
+            return Some(id);
+        }
+    }
+
+    None
+}
+
+/// Resets the `accesskit_focused` flag on every node in the widget tree.
+///
+/// This must be called before each accessibility tree build so that
+/// focus flags from the previous frame don't persist.
+#[cfg(feature = "accessibility")]
+fn reset_accesskit_focus(tree: &widget::Tree) {
+    tree.set_accesskit_focused(false);
+
+    for child in &tree.children {
+        reset_accesskit_focus(child);
     }
 }

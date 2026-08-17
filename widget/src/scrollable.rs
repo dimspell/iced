@@ -134,6 +134,36 @@ where
         self
     }
 
+    pub(crate) fn scroll_to_rectangle(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        target: Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let Some(content_bounds) = layout.children().next().map(|layout| layout.bounds()) else {
+            return;
+        };
+        let state = tree.state.downcast_mut::<State>();
+        let current = state
+            .offset_y
+            .absolute(bounds.height, content_bounds.height);
+        let viewport_top = content_bounds.y + current;
+        let viewport_bottom = viewport_top + bounds.height;
+        let target_bottom = target.y + target.height;
+        let max_scroll = (content_bounds.height - bounds.height).max(0.0);
+
+        let offset = if target.y < viewport_top {
+            target.y - content_bounds.y
+        } else if target_bottom > viewport_bottom {
+            target_bottom - content_bounds.y - bounds.height
+        } else {
+            current
+        };
+
+        state.offset_y = Offset::Absolute(offset.clamp(0.0, max_scroll));
+    }
+
     /// Sets a function to call when the [`Scrollable`] is scrolled.
     ///
     /// The function takes the [`Viewport`] of the [`Scrollable`]
@@ -534,6 +564,194 @@ where
                 operation,
             );
         });
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        // Scrollable content
+        let child_id = self.content.as_widget().accessibility(
+            layout.children().next().unwrap(),
+            &tree.children[0],
+            nodes,
+            id_counter,
+        );
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Group);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+
+        if let Some(child_id) = child_id {
+            builder.push_child(child_id);
+        }
+        builder.add_child_action(accesskit::Action::ScrollIntoView);
+
+        // Report scroll position
+        let state: &State = tree.state.downcast_ref::<State>();
+        let bounds = layout.bounds();
+        let content_bounds = layout
+            .children()
+            .next()
+            .map(|l| l.bounds())
+            .unwrap_or_default();
+
+        let scroll_x = state.offset_x.absolute(bounds.width, content_bounds.width) as f64;
+        let scroll_y = state
+            .offset_y
+            .absolute(bounds.height, content_bounds.height) as f64;
+
+        builder.set_scroll_x(scroll_x);
+        builder.set_scroll_y(scroll_y);
+        builder.set_scroll_x_min(0.0);
+        builder.set_scroll_y_min(0.0);
+        builder.set_scroll_x_max((content_bounds.width - bounds.width).max(0.0) as f64);
+        builder.set_scroll_y_max((content_bounds.height - bounds.height).max(0.0) as f64);
+
+        // Only advertise scroll actions if the content is scrollable
+        if content_bounds.width > bounds.width {
+            builder.add_action(accesskit::Action::ScrollLeft);
+            builder.add_action(accesskit::Action::ScrollRight);
+        }
+        if content_bounds.height > bounds.height {
+            builder.add_action(accesskit::Action::ScrollDown);
+            builder.add_action(accesskit::Action::ScrollUp);
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        use crate::core::accessibility::accesskit;
+
+        // Handle scroll actions
+        let is_scrollable_target = tree.accesskit_node_id() == Some(action.target_node);
+        let target_bounds = tree.find_accesskit_bounds(action.target_node);
+        let state = tree.state.downcast_mut::<State>();
+        let bounds = layout.bounds();
+        let content_bounds = layout
+            .children()
+            .next()
+            .map(|l| l.bounds())
+            .unwrap_or_default();
+        let max_scroll_x = (content_bounds.width - bounds.width).max(0.0);
+        let max_scroll_y = (content_bounds.height - bounds.height).max(0.0);
+
+        if action.action == accesskit::Action::ScrollIntoView {
+            if let Some(target_bounds) = target_bounds {
+                let current_x = state.offset_x.absolute(bounds.width, content_bounds.width);
+                let current_y = state
+                    .offset_y
+                    .absolute(bounds.height, content_bounds.height);
+
+                let target_right = target_bounds.x + target_bounds.width;
+                let target_bottom = target_bounds.y + target_bounds.height;
+                let bounds_right = bounds.x + bounds.width;
+                let bounds_bottom = bounds.y + bounds.height;
+
+                let new_x = if target_bounds.x < bounds.x {
+                    current_x + target_bounds.x - bounds.x
+                } else if target_right > bounds_right {
+                    current_x + target_right - bounds_right
+                } else {
+                    current_x
+                }
+                .clamp(0.0, max_scroll_x);
+
+                let new_y = if target_bounds.y < bounds.y {
+                    current_y + target_bounds.y - bounds.y
+                } else if target_bottom > bounds_bottom {
+                    current_y + target_bottom - bounds_bottom
+                } else {
+                    current_y
+                }
+                .clamp(0.0, max_scroll_y);
+
+                state.offset_x = Offset::Absolute(new_x);
+                state.offset_y = Offset::Absolute(new_y);
+                shell.invalidate_layout();
+                shell.request_redraw();
+            }
+        }
+
+        if is_scrollable_target {
+            match action.action {
+                accesskit::Action::ScrollDown => {
+                    let scroll_amount = 40.0; // pixels per scroll step
+                    let new_offset = (state
+                        .offset_y
+                        .absolute(bounds.height, content_bounds.height)
+                        + scroll_amount)
+                        .min(max_scroll_y);
+                    state.offset_y = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::ScrollUp => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state
+                        .offset_y
+                        .absolute(bounds.height, content_bounds.height)
+                        - scroll_amount)
+                        .max(0.0);
+                    state.offset_y = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::ScrollLeft => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                        - scroll_amount)
+                        .max(0.0);
+                    state.offset_x = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::ScrollRight => {
+                    let scroll_amount = 40.0;
+                    let new_offset = (state.offset_x.absolute(bounds.width, content_bounds.width)
+                        + scroll_amount)
+                        .min(max_scroll_x);
+                    state.offset_x = Offset::Absolute(new_offset);
+                    shell.invalidate_layout();
+                    return;
+                }
+                accesskit::Action::SetScrollOffset => {
+                    if let Some(data) = &action.data {
+                        if let accesskit::ActionData::SetScrollOffset(scroll_offset) = data {
+                            state.offset_x = Offset::Absolute(scroll_offset.x as f32);
+                            state.offset_y = Offset::Absolute(scroll_offset.y as f32);
+                            shell.invalidate_layout();
+                        }
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Forward to child for other actions
+        if let (Some(state), Some(layout)) = (tree.children.first_mut(), layout.children().next()) {
+            self.content
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+        }
     }
 
     fn update(

@@ -62,6 +62,7 @@ where
     fragment: text::Fragment<'a>,
     format: Format<Renderer::Font>,
     class: Theme::Class<'a>,
+    heading_level: Option<usize>,
 }
 
 impl<'a, Theme, Renderer> Text<'a, Theme, Renderer>
@@ -75,6 +76,7 @@ where
             fragment: fragment.into_fragment(),
             format: Format::default(),
             class: Theme::default(),
+            heading_level: None,
         }
     }
 
@@ -151,6 +153,23 @@ where
     /// Sets the [`Ellipsis`] strategy of the [`Text`].
     pub fn ellipsis(mut self, ellipsis: Ellipsis) -> Self {
         self.format.ellipsis = ellipsis;
+        self
+    }
+
+    /// Marks the [`Text`] as a heading with the given level.
+    ///
+    /// This will set the accessibility role to `Heading` with the specified
+    /// level (1-6), which helps screen reader users navigate the document
+    /// structure.
+    ///
+    /// # Example
+    /// ```
+    /// use iced_core::widget::text;
+    /// // Creates a level 1 heading
+    /// let heading = text::Text::<iced_core::Theme, ()>::new("Welcome").heading(1);
+    /// ```
+    pub fn heading(mut self, level: usize) -> Self {
+        self.heading_level = Some(level);
         self
     }
 
@@ -258,6 +277,38 @@ where
         operation: &mut dyn super::Operation,
     ) {
         operation.text(None, layout.bounds(), &self.fragment);
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::Layout<'_>,
+        tree: &crate::widget::Tree,
+        _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        _id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let text = self.fragment.as_ref();
+        if text.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*_id_counter);
+        tree.set_accesskit_node_id(id);
+        *_id_counter += 1;
+
+        let mut builder = if let Some(level) = self.heading_level {
+            let mut node = accesskit::Node::new(accesskit::Role::Heading);
+            node.set_level(level);
+            node
+        } else {
+            accesskit::Node::new(accesskit::Role::Label)
+        };
+        crate::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        builder.set_value(text);
+
+        _nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

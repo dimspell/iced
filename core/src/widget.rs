@@ -93,6 +93,47 @@ where
     ) {
     }
 
+    /// Returns the accessibility node for the [`Widget`], if any, and collects
+    /// all descendant accessibility nodes in the provided vector.
+    ///
+    /// Accessible nodes are used by assistive technologies (screen readers,
+    /// switch controls, etc.) to interact with the widget.
+    ///
+    /// The returned `Option<accesskit::NodeId>` is the ID of this widget's node
+    /// in the accessibility tree. The `nodes` vector is populated with all
+    /// accessibility nodes (including this widget's node and all descendants).
+    ///
+    /// Returns `None` if the widget is invisible to assistive technologies.
+    ///
+    /// By default, it returns `None` and does not populate `nodes`.
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: Layout<'_>,
+        _tree: &Tree,
+        _nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        _id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        None
+    }
+
+    /// Handles an accessibility action request targeting this widget.
+    ///
+    /// This is called when an assistive technology (screen reader, switch
+    /// control, etc.) performs an action on the widget, such as activating
+    /// a button or changing a slider value.
+    ///
+    /// By default, it does nothing.
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        _tree: &mut Tree,
+        _layout: Layout<'_>,
+        _action: &accesskit::ActionRequest,
+        _shell: &mut Shell<'_, Message>,
+    ) {
+    }
+
     /// Processes a runtime [`Event`].
     ///
     /// By default, it does nothing.

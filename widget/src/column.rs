@@ -4,7 +4,7 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{
     Element, Event, Layout, Length, Padding, Pixels, Rectangle, Shell, Size, Vector, Widget,
 };
@@ -38,6 +38,8 @@ pub struct Column<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer>
     height: Length,
     align: Alignment,
     clip: bool,
+    focusable: bool,
+    accessible_label: Option<String>,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
 }
 
@@ -73,6 +75,8 @@ where
             height: Length::Fit,
             align: Alignment::Start,
             clip: false,
+            focusable: false,
+            accessible_label: None,
             children,
         }
     }
@@ -115,6 +119,18 @@ where
     /// overflow.
     pub fn clip(mut self, clip: bool) -> Self {
         self.clip = clip;
+        self
+    }
+
+    /// Enables the [`Column`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
+        self
+    }
+
+    /// Sets the accessible label of the [`Column`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -171,6 +187,22 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: crate::core::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        if self.focusable {
+            crate::focus_ring::FocusState::tag()
+        } else {
+            tree::Tag::stateless()
+        }
+    }
+
+    fn state(&self) -> tree::State {
+        if self.focusable {
+            crate::focus_ring::FocusState::state()
+        } else {
+            tree::State::None
+        }
+    }
+
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(&mut self.children);
 
@@ -218,6 +250,10 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<crate::focus_ring::FocusState>();
+            operation.focusable(None, layout.bounds(), state);
+        }
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.children
@@ -232,6 +268,104 @@ where
         });
     }
 
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let mut child_ids = Vec::new();
+        let layouts: Vec<_> = layout.children().collect();
+        for (i, child_tree) in tree.children.iter().enumerate() {
+            if let Some(child_layout) = layouts.get(i) {
+                if let Some(child_id) = self.children[i].as_widget().accessibility(
+                    *child_layout,
+                    child_tree,
+                    nodes,
+                    id_counter,
+                ) {
+                    child_ids.push(child_id);
+                }
+            }
+        }
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        for child_id in &child_ids {
+            builder.push_child(*child_id);
+        }
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree
+                .state
+                .downcast_ref::<crate::focus_ring::FocusState>()
+                .is_focused
+            {
+                tree.set_accesskit_focused(true);
+            }
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<crate::focus_ring::FocusState>()
+                    .is_focused = true;
+                shell.request_redraw();
+            }
+            return;
+        }
+
+        for ((child, state), layout) in self
+            .children
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            if !state.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
+            child
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+            break;
+        }
+    }
+
     fn update(
         &mut self,
         tree: &mut Tree,
@@ -242,15 +376,15 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        for ((child, tree), layout) in self
+        for ((child, state), layout) in self
             .children
             .iter_mut()
-            .zip(&mut tree.children)
+            .zip(tree.children.iter_mut())
             .zip(layout.children())
         {
             child
                 .as_widget_mut()
-                .update(tree, event, layout, cursor, renderer, shell, viewport);
+                .update(state, event, layout, cursor, renderer, shell, viewport);
         }
     }
 
@@ -286,6 +420,15 @@ where
         viewport: &Rectangle,
     ) {
         if let Some(clipped_viewport) = layout.bounds().intersection(viewport) {
+            #[cfg(feature = "accessibility")]
+            if self.focusable && tree.accesskit_focused() {
+                crate::focus_ring::draw(
+                    renderer,
+                    layout.bounds(),
+                    &crate::focus_ring::Appearance::default(),
+                );
+            }
+
             let viewport = if self.clip {
                 &clipped_viewport
             } else {
@@ -489,6 +632,14 @@ where
         layout::Node::with_children(size.expand(self.column.padding), children)
     }
 
+    fn tag(&self) -> tree::Tag {
+        self.column.tag()
+    }
+
+    fn state(&self) -> tree::State {
+        self.column.state()
+    }
+
     fn operate(
         &mut self,
         tree: &mut Tree,
@@ -497,6 +648,29 @@ where
         operation: &mut dyn Operation,
     ) {
         self.column.operate(tree, layout, renderer, operation);
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        self.column.accessibility(layout, tree, nodes, id_counter)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        self.column
+            .accessibility_action(tree, layout, action, shell);
     }
 
     fn update(

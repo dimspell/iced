@@ -21,6 +21,8 @@ pub struct Viewer<Handle> {
     handle: Handle,
     filter_method: FilterMethod,
     content_fit: ContentFit,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<Handle> Viewer<Handle> {
@@ -36,6 +38,8 @@ impl<Handle> Viewer<Handle> {
             scale_step: 0.10,
             filter_method: FilterMethod::default(),
             content_fit: ContentFit::default(),
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -48,6 +52,17 @@ impl<Handle> Viewer<Handle> {
     /// Sets the [`ContentFit`] of the [`Viewer`].
     pub fn content_fit(mut self, content_fit: ContentFit) -> Self {
         self.content_fit = content_fit;
+        self
+    }
+
+    /// Sets the accessible label for this image viewer, providing a text
+    /// alternative for screen readers (analogous to HTML's `alt` attribute).
+    ///
+    /// Informative images should have a descriptive label. Decorative
+    /// images can omit this method.
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 
@@ -342,6 +357,27 @@ where
         };
 
         renderer.with_layer(bounds, render);
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::Image);
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 

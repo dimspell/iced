@@ -1,6 +1,7 @@
 #![allow(missing_docs)] // TODO
 use crate::alignment;
 use crate::clipboard;
+use crate::input_method;
 use crate::layout;
 use crate::mouse;
 use crate::text::editor;
@@ -8,7 +9,6 @@ use crate::text::paragraph;
 use crate::text::{self, Alignment, Editor, LineHeight, Position, Text, Wrapping};
 use crate::widget::operation::{Focusable, TextInput};
 use crate::{Color, Event, InputMethod, Length, Padding, Pixels, Point, Rectangle, Shell};
-
 use unicode_segmentation::UnicodeSegmentation;
 
 use std::sync::Arc;
@@ -55,6 +55,16 @@ impl<R: text::Renderer> Input<R> {
 
     pub fn value(&self) -> String {
         Editor::text(&self.editor)
+    }
+
+    /// Returns the current cursor of the [`Input`].
+    pub fn cursor(&self) -> editor::Cursor {
+        self.editor.cursor()
+    }
+
+    /// Returns the current preedit of the [`Input`], if any.
+    pub fn preedit(&self) -> Option<&input_method::Preedit> {
+        self.state.preedit()
     }
 
     pub fn placeholder(&self) -> &str {

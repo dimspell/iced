@@ -3,7 +3,7 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{Element, Event, Layout, Length, Rectangle, Shell, Size, Vector, Widget};
 
 /// A container that displays children on top of each other.
@@ -23,6 +23,8 @@ pub struct Stack<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer> 
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     clip: bool,
     base_layer: usize,
+    focusable: bool,
+    accessible_label: Option<String>,
 }
 
 impl<'a, Message, Theme, Renderer> Stack<'a, Message, Theme, Renderer>
@@ -56,6 +58,8 @@ where
             children,
             clip: false,
             base_layer: 0,
+            focusable: false,
+            accessible_label: None,
         }
     }
 
@@ -106,6 +110,18 @@ where
         self.clip = clip;
         self
     }
+
+    /// Sets the accessible label of the [`Stack`].
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
+    }
+
+    /// Enables the [`Stack`] to be focused via keyboard navigation.
+    pub fn focusable(mut self) -> Self {
+        self.focusable = true;
+        self
+    }
 }
 
 impl<Message, Renderer> Default for Stack<'_, Message, Renderer>
@@ -130,6 +146,22 @@ where
 
             self.width = self.width.cross(size.width);
             self.height = self.height.cross(size.height);
+        }
+    }
+
+    fn tag(&self) -> tree::Tag {
+        if self.focusable {
+            crate::focus_ring::FocusState::tag()
+        } else {
+            tree::Tag::stateless()
+        }
+    }
+
+    fn state(&self) -> tree::State {
+        if self.focusable {
+            crate::focus_ring::FocusState::state()
+        } else {
+            tree::State::None
         }
     }
 
@@ -187,6 +219,11 @@ where
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        if self.focusable {
+            let state = tree.state.downcast_mut::<crate::focus_ring::FocusState>();
+            operation.focusable(None, layout.bounds(), state);
+        }
+
         operation.container(None, layout.bounds());
         operation.traverse(&mut |operation| {
             self.children
@@ -278,6 +315,15 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        #[cfg(feature = "accessibility")]
+        if self.focusable && tree.accesskit_focused() {
+            crate::focus_ring::draw(
+                renderer,
+                layout.bounds(),
+                &crate::focus_ring::Appearance::default(),
+            );
+        }
+
         if let Some(clipped_viewport) = layout.bounds().intersection(viewport) {
             let viewport = if self.clip {
                 &clipped_viewport
@@ -335,6 +381,108 @@ where
             for (i, ((layer, tree), layout)) in layers {
                 draw_layer(i, layer, tree, layout, cursor);
             }
+        }
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        use crate::core::accessibility::accesskit;
+
+        let mut child_ids = Vec::new();
+
+        for ((child, state), child_layout) in self
+            .children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+        {
+            if let Some(child_id) =
+                child
+                    .as_widget()
+                    .accessibility(child_layout, state, nodes, id_counter)
+            {
+                child_ids.push(child_id);
+            }
+        }
+
+        if child_ids.is_empty() {
+            return None;
+        }
+
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let role = if self.accessible_label.is_some() {
+            accesskit::Role::Group
+        } else {
+            accesskit::Role::GenericContainer
+        };
+        let mut builder = accesskit::Node::new(role);
+        crate::core::accessibility::set_bounds(tree, &mut builder, layout.bounds());
+        for child_id in child_ids {
+            builder.push_child(child_id);
+        }
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+
+        if self.focusable {
+            builder.add_action(accesskit::Action::Focus);
+            builder.add_child_action(accesskit::Action::Focus);
+
+            if tree
+                .state
+                .downcast_ref::<crate::focus_ring::FocusState>()
+                .is_focused
+            {
+                tree.set_accesskit_focused(true);
+            }
+        }
+
+        nodes.push((id, builder));
+
+        Some(id)
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility_action(
+        &mut self,
+        tree: &mut crate::core::widget::Tree,
+        layout: crate::core::Layout<'_>,
+        action: &accesskit::ActionRequest,
+        shell: &mut crate::core::Shell<'_, Message>,
+    ) {
+        if self.focusable && tree.owns_accesskit_node_id(action.target_node) {
+            if action.action == accesskit::Action::Focus {
+                tree.state
+                    .downcast_mut::<crate::focus_ring::FocusState>()
+                    .is_focused = true;
+                shell.request_redraw();
+            }
+            return;
+        }
+
+        for ((child, state), layout) in self
+            .children
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            if !state.contains_accesskit_node_id(action.target_node) {
+                continue;
+            }
+
+            child
+                .as_widget_mut()
+                .accessibility_action(state, layout, action, shell);
+            break;
         }
     }
 

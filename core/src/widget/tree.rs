@@ -1,8 +1,12 @@
 //! Store internal widget state in a state tree to ensure continuity.
+#[cfg(feature = "accessibility")]
+use crate::Rectangle;
 use crate::Widget;
 
 use std::any::{self, Any};
 use std::borrow::{Borrow, BorrowMut};
+#[cfg(feature = "accessibility")]
+use std::cell::{Cell, RefCell};
 use std::fmt;
 
 /// A persistent state widget tree.
@@ -18,6 +22,29 @@ pub struct Tree {
 
     /// The children of the root widget of the [`Tree`].
     pub children: Vec<Tree>,
+
+    /// The accesskit [`NodeId`] assigned to this widget during the last
+    /// accessibility tree build, if any.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_node_id: Cell<Option<accesskit::NodeId>>,
+
+    /// The bounds of the accesskit node assigned to this widget during the
+    /// last accessibility tree build, if any.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_bounds: Cell<Option<Rectangle>>,
+
+    /// Whether this widget currently has keyboard focus, determined during the
+    /// last accessibility tree build.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_focused: Cell<bool>,
+
+    /// Additional accesskit node IDs belonging to this widget's custom
+    /// accessibility subtree (e.g. individual cells/rows in a table widget).
+    /// These are registered during `accessibility()` so action dispatch
+    /// (Focus, ScrollIntoView) targeting these custom nodes can be routed
+    /// back to this widget.
+    #[cfg(feature = "accessibility")]
+    pub accesskit_custom_ids: RefCell<Vec<accesskit::NodeId>>,
 }
 
 impl Tree {
@@ -27,6 +54,14 @@ impl Tree {
             tag: Tag::stateless(),
             state: State::None,
             children: Vec::new(),
+            #[cfg(feature = "accessibility")]
+            accesskit_node_id: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_bounds: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_focused: Cell::new(false),
+            #[cfg(feature = "accessibility")]
+            accesskit_custom_ids: RefCell::new(Vec::new()),
         }
     }
 
@@ -43,7 +78,94 @@ impl Tree {
             tag: widget.tag(),
             state: widget.state(),
             children: Vec::new(),
+            #[cfg(feature = "accessibility")]
+            accesskit_node_id: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_bounds: Cell::new(None),
+            #[cfg(feature = "accessibility")]
+            accesskit_focused: Cell::new(false),
+            #[cfg(feature = "accessibility")]
+            accesskit_custom_ids: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Sets the accesskit [`NodeId`] assigned to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_node_id(&self, id: accesskit::NodeId) {
+        self.accesskit_node_id.set(Some(id));
+    }
+
+    /// Registers additional accesskit [`NodeId`]s that belong to this widget's
+    /// custom accessibility subtree. These IDs are checked by
+    /// [`contains_accesskit_node_id`] so actions targeting custom child nodes
+    /// can be routed back to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn register_custom_accesskit_ids(&self, ids: &[accesskit::NodeId]) {
+        self.accesskit_custom_ids
+            .borrow_mut()
+            .extend_from_slice(ids);
+    }
+
+    /// Returns the accesskit [`NodeId`] assigned to this widget, if any.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_node_id(&self) -> Option<accesskit::NodeId> {
+        self.accesskit_node_id.get()
+    }
+
+    /// Sets the bounds of the accesskit node assigned to this widget.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_bounds(&self, bounds: Rectangle) {
+        self.accesskit_bounds.set(Some(bounds));
+    }
+
+    /// Returns the bounds of the accesskit node assigned to this widget, if any.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_bounds(&self) -> Option<Rectangle> {
+        self.accesskit_bounds.get()
+    }
+
+    /// Returns whether this tree, or any of its children, contains the
+    /// provided accesskit [`NodeId`].
+    #[cfg(feature = "accessibility")]
+    pub fn contains_accesskit_node_id(&self, id: accesskit::NodeId) -> bool {
+        self.accesskit_node_id() == Some(id)
+            || self.accesskit_custom_ids.borrow().contains(&id)
+            || self
+                .children
+                .iter()
+                .any(|child| child.contains_accesskit_node_id(id))
+    }
+
+    /// Returns whether this tree itself, or any of its descendants, owns the
+    /// provided accesskit [`NodeId`].
+    #[cfg(feature = "accessibility")]
+    pub fn owns_accesskit_node_id(&self, id: accesskit::NodeId) -> bool {
+        self.contains_accesskit_node_id(id)
+    }
+
+    /// Returns the bounds of the provided accesskit [`NodeId`] if this tree
+    /// or one of its children owns it.
+    #[cfg(feature = "accessibility")]
+    pub fn find_accesskit_bounds(&self, id: accesskit::NodeId) -> Option<Rectangle> {
+        if self.accesskit_node_id() == Some(id) {
+            return self.accesskit_bounds();
+        }
+
+        self.children
+            .iter()
+            .find_map(|child| child.find_accesskit_bounds(id))
+    }
+
+    /// Sets whether this widget has keyboard focus.
+    #[cfg(feature = "accessibility")]
+    pub fn set_accesskit_focused(&self, focused: bool) {
+        self.accesskit_focused.set(focused);
+    }
+
+    /// Returns whether this widget has keyboard focus.
+    #[cfg(feature = "accessibility")]
+    pub fn accesskit_focused(&self) -> bool {
+        self.accesskit_focused.get()
     }
 
     /// Reconciles the current tree with the provided [`Widget`].
@@ -248,6 +370,42 @@ impl State {
             State::None => panic!("Downcast on stateless state"),
             State::Some(state) => state.downcast_mut().expect("Downcast widget state"),
         }
+    }
+
+    /// Tries to downcast the [`State`] to `T`, returning `None` if the state is `State::None`.
+    pub fn try_downcast_ref<T>(&self) -> Option<&T>
+    where
+        T: 'static,
+    {
+        match self {
+            State::None => None,
+            State::Some(state) => state.downcast_ref(),
+        }
+    }
+
+    /// Tries to downcast the [`State`] to `T` mutably, returning `None` if the state is `State::None`.
+    pub fn try_downcast_mut<T>(&mut self) -> Option<&mut T>
+    where
+        T: 'static,
+    {
+        match self {
+            State::None => None,
+            State::Some(state) => state.downcast_mut(),
+        }
+    }
+
+    /// Downcasts the [`State`] to `T`, initializing it with a default if it is `State::None`.
+    ///
+    /// If the existing state is `State::Some` but the type doesn't match,
+    /// this will still panic — the [`Tree`] diff mechanism should ensure types match.
+    pub fn downcast_or_init<T>(&mut self, default: impl FnOnce() -> T) -> &mut T
+    where
+        T: 'static,
+    {
+        if matches!(self, State::None) {
+            *self = State::new(default());
+        }
+        self.downcast_mut()
     }
 }
 

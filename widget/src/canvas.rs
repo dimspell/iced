@@ -146,6 +146,8 @@ where
     theme_: PhantomData<Theme>,
     renderer_: PhantomData<Renderer>,
     last_mouse_interaction: Option<mouse::Interaction>,
+    #[cfg(feature = "accessibility")]
+    accessible_label: Option<String>,
 }
 
 impl<P, Message, Theme, Renderer> Canvas<P, Message, Theme, Renderer>
@@ -165,6 +167,8 @@ where
             theme_: PhantomData,
             renderer_: PhantomData,
             last_mouse_interaction: None,
+            #[cfg(feature = "accessibility")]
+            accessible_label: None,
         }
     }
 
@@ -177,6 +181,17 @@ where
     /// Sets the height of the [`Canvas`].
     pub fn height(mut self, height: impl Into<Length>) -> Self {
         self.height = height.into();
+        self
+    }
+
+    /// Sets the accessible label for this canvas, providing a text
+    /// description for screen readers.
+    ///
+    /// Custom canvas widgets should use this to describe their visual content
+    /// (e.g., "Line chart showing revenue by quarter").
+    #[cfg(feature = "accessibility")]
+    pub fn accessible_label(mut self, label: impl Into<String>) -> Self {
+        self.accessible_label = Some(label.into());
         self
     }
 }
@@ -296,6 +311,27 @@ where
                 renderer.draw_geometry(layer);
             }
         });
+    }
+
+    #[cfg(feature = "accessibility")]
+    fn accessibility(
+        &self,
+        _layout: crate::core::Layout<'_>,
+        tree: &crate::core::widget::Tree,
+        nodes: &mut Vec<(accesskit::NodeId, accesskit::Node)>,
+        id_counter: &mut u64,
+    ) -> Option<accesskit::NodeId> {
+        let id = accesskit::NodeId(*id_counter);
+        tree.set_accesskit_node_id(id);
+        *id_counter += 1;
+
+        let mut builder = accesskit::Node::new(accesskit::Role::GraphicsSymbol);
+        if let Some(label) = &self.accessible_label {
+            builder.set_label(label.as_str());
+        }
+        nodes.push((id, builder));
+
+        Some(id)
     }
 }
 
