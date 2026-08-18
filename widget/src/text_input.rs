@@ -573,8 +573,8 @@ where
 
             operation::TextInput::select_range(
                 &mut state.input,
-                grapheme_index_to_position(&value, anchor),
                 grapheme_index_to_position(&value, focus),
+                grapheme_index_to_position(&value, anchor),
             );
 
             shell.request_redraw();

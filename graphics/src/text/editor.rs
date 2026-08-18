@@ -1140,7 +1140,8 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::Editor;
-    use crate::core::text::editor::{Action, Cursor, Editor as _, Position};
+    use crate::core::text::editor::{Action, Cursor, Editor as _};
+    use crate::core::text::Position;
 
     #[test]
     fn set_selection_action_moves_cursor_and_anchor() {

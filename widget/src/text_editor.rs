@@ -1295,15 +1295,15 @@ mod accessibility_tests {
 
         assert_eq!(
             grapheme_index_to_position(text, 1),
-            Position { line: 0, column: 1 }
+            Position { line: 0, index: 1 }
         );
         assert_eq!(
             grapheme_index_to_position(text, 3),
-            Position { line: 1, column: 0 }
+            Position { line: 1, index: 0 }
         );
         assert_eq!(
             grapheme_index_to_position(text, 4),
-            Position { line: 1, column: 1 }
+            Position { line: 1, index: 1 }
         );
         assert_eq!(line_col_byte_offset(text, 0, 1), 1);
         assert_eq!(line_col_byte_offset(text, 1, 1), 8);
@@ -1315,11 +1315,11 @@ mod accessibility_tests {
 
         assert_eq!(
             grapheme_index_to_position(text, 3),
-            Position { line: 1, column: 0 }
+            Position { line: 1, index: 0 }
         );
         assert_eq!(
             grapheme_index_to_position(text, 4),
-            Position { line: 1, column: 2 }
+            Position { line: 1, index: 2 }
         );
         assert_eq!(line_col_byte_offset(text, 1, 2), 5);
     }

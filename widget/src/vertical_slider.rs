@@ -30,6 +30,8 @@
 //! ```
 use std::ops::RangeInclusive;
 
+use num_traits::AsPrimitive;
+
 pub use crate::slider::{Catalog, Handle, HandleShape, Status, Style, StyleFn, default};
 
 use crate::core::border::Border;
@@ -619,9 +621,9 @@ where
 
         let current: f64 = self.value.as_();
         let new_value: f64 = match action.action {
-            accesskit::Action::Increment => (current + self.step.as_()).min(self.range.end().as_()),
+            accesskit::Action::Increment => (current + self.step).min(self.range.end().as_()),
             accesskit::Action::Decrement => {
-                (current - self.step.as_()).max(self.range.start().as_())
+                (current - self.step).max(self.range.start().as_())
             }
             accesskit::Action::SetValue => {
                 let Some(value) = action.data.as_ref().and_then(numeric_action_value) else {

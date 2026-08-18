@@ -565,11 +565,10 @@ fn text_input_set_text_selection_clamps_and_preserves_direction() {
     let selection = find_node(&tree, Role::TextInput)
         .and_then(accesskit::Node::text_selection)
         .expect("TextInput selection");
-    // The headless test renderer's editor cannot move the cursor, so the
-    // selection stays at the initial position. Clamping and direction
-    // preservation are exercised in the widget code path without panicking.
-    assert_eq!(selection.anchor.character_index, 0);
-    assert_eq!(selection.focus.character_index, 0);
+    // The out-of-range anchor (99) is clamped to the text length (3), and the
+    // selection direction is preserved: the anchor stays after the focus.
+    assert_eq!(selection.anchor.character_index, 3);
+    assert_eq!(selection.focus.character_index, 1);
 }
 
 #[test]
@@ -999,12 +998,13 @@ fn callback_free_read_only_text_editor_navigates_without_editing() {
     let tree = ui.accessibility_tree();
     let editor = find_node(&tree, Role::MultilineTextInput).expect("Read-only TextEditor");
     let selection = editor.text_selection().expect("Read-only editor selection");
-    assert_eq!(selection.anchor.character_index, 0);
-    assert_eq!(selection.focus.character_index, 0);
+    // The read-only editor allows navigation: the cursor moved to the next
+    // grapheme after ArrowRight. Editing and IME events are rejected.
+    assert_eq!(selection.anchor.character_index, 1);
+    assert_eq!(selection.focus.character_index, 1);
     assert!(!editor.is_text_input_marked());
-    // The headless test renderer stores no text, but read-only events must not
-    // create content or publish edit messages.
-    assert_eq!(content.text(), "");
+    // Read-only events must not modify the content or publish edit messages.
+    assert_eq!(content.text(), "abc");
     assert_eq!(ui.into_messages().count(), 0);
 }
 
